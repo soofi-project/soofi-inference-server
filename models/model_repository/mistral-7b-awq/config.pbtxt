@@ -1,0 +1,68 @@
+name: "mistral-7b-awq"
+backend: "vllm"
+
+input [
+  {
+    name: "text_input"
+    data_type: TYPE_STRING
+    dims: [ 1 ]
+  },
+  {
+    name: "stream"
+    data_type: TYPE_BOOL
+    dims: [ 1 ]
+    optional: true
+  },
+  {
+    name: "sampling_parameters"
+    data_type: TYPE_STRING
+    dims: [ 1 ]
+    optional: true
+  }
+]
+
+output [
+  {
+    name: "text_output"
+    data_type: TYPE_STRING
+    dims: [ -1 ]
+  }
+]
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_MODEL
+  }
+]
+
+parameters [
+  {
+    key: "model"
+    value: { string_value: "TechxGenus/Mistral-7B-Instruct-v0.3-AWQ" }
+  },
+  {
+    key: "tensor_parallel_size"
+    value: { string_value: "1" }
+  },
+  {
+    key: "pipeline_parallel_size"
+    value: { string_value: "1" }
+  },
+  {
+    key: "gpu_memory_utilization"
+    value: { string_value: "0.90" }
+  },
+  {
+    key: "dtype"
+    value: { string_value: "auto" }
+  },
+  {
+    key: "quantization"
+    value: { string_value: "awq" }
+  },
+  {
+    key: "max_model_len"
+    value: { string_value: "16384" }
+  }
+]

@@ -1,0 +1,129 @@
+services:
+  # =============================================================================
+  # Triton Inference Server with vLLM Backend
+  # =============================================================================
+  triton:
+    image: ${TRITON_IMAGE:-nvcr.io/nvidia/tritonserver:24.08-vllm-python-py3}
+    container_name: triton-vllm
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "${HTTP_PORT:-8000}:8000"
+      - "${GRPC_PORT:-8001}:8001"
+      - "${METRICS_PORT:-8002}:8002"
+
+    volumes:
+      - ${MODEL_REPOSITORY:-../models/model_repository}:/models
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1}
+
+    command: >
+      tritonserver
+      --model-repository=/models
+      --log-verbose=1
+      --log-info=1
+      --log-warning=1
+      --log-error=1
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v2/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+    shm_size: '16gb'
+
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      stack:
+        soft: 67108864
+        hard: 67108864
+
+    networks:
+      - inference-net
+
+  # =============================================================================
+  # LiteLLM Proxy - OpenAI API Compatibility Layer
+  # =============================================================================
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: litellm-proxy
+    restart: unless-stopped
+
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
+
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml
+
+    environment:
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+
+    depends_on:
+      triton:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    networks:
+      - inference-net
+
+  # =============================================================================
+  # Open WebUI - Chat Interface
+  # =============================================================================
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: unless-stopped
+
+    ports:
+      - "${WEBUI_PORT:-3000}:8080"
+
+    volumes:
+      - open-webui-data:/app/backend/data
+
+    environment:
+      - OPENAI_API_BASE_URLS=http://litellm:4000/v1
+      - OPENAI_API_KEYS=${LITELLM_MASTER_KEY}
+      - WEBUI_AUTH=${WEBUI_AUTH:-true}
+      - WEBUI_NAME=${WEBUI_NAME:-AI Server}
+      - ENABLE_OLLAMA_API=false
+
+    depends_on:
+      litellm:
+        condition: service_healthy
+
+    networks:
+      - inference-net
+
+volumes:
+  huggingface_cache:
+    name: triton_hf_cache
+  open-webui-data:
+    name: open_webui_data
+
+networks:
+  inference-net:
+    name: inference-network
+    driver: bridge

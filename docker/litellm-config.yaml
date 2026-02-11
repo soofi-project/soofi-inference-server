@@ -1,0 +1,28 @@
+# LiteLLM Proxy Configuration
+# Translates OpenAI API calls to Triton Inference Server
+
+model_list:
+  # Mistral 7B AWQ (quantized, ~5GB VRAM)
+  - model_name: mistral-7b-awq
+    litellm_params:
+      model: triton/mistral-7b-awq
+      api_base: http://triton:8000/v2/models/mistral-7b-awq/generate
+
+  # Alias for OpenAI compatibility
+  - model_name: gpt-4
+    litellm_params:
+      model: triton/mistral-7b-awq
+      api_base: http://triton:8000/v2/models/mistral-7b-awq/generate
+
+  - model_name: gpt-3.5-turbo
+    litellm_params:
+      model: triton/mistral-7b-awq
+      api_base: http://triton:8000/v2/models/mistral-7b-awq/generate
+
+# General settings
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
