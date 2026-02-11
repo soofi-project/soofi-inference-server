@@ -4,6 +4,7 @@ docker/.env
 
 # HuggingFace cache
 .cache/
+models/hf_cache/
 
 # Model weights (downloaded at runtime)
 models/model_repository/*/1/*.bin

@@ -35,6 +35,7 @@ ai_server_setup/
 │           └── config.pbtxt
 └── scripts/
     ├── install-nvidia.sh        # NVIDIA Stack Installation
+    ├── detect-gpu.sh            # GPU Detection & Parallelism Config
     ├── download-model.sh        # Model Download (interaktiv)
     └── models.txt               # Verfügbare Modelle (bis 30B)
 ```
@@ -53,6 +54,10 @@ docker compose -f docker/docker-compose.yml logs -f  # View Logs
 # Kubernetes Deployment
 kubectl apply -f kubernetes/                         # Deploy to K8s
 kubectl get pods -n triton-inference                 # Check Pods
+
+# GPU Detection
+bash scripts/detect-gpu.sh                           # Show GPU config
+source scripts/detect-gpu.sh                         # Load as env vars
 
 # Model Management
 ./scripts/download-model.sh                          # Interaktive Auswahl
@@ -173,4 +178,4 @@ kubectl apply -f kubernetes/
 - Erste Inference nach Model-Load kann langsamer sein (Warmup)
 - GPU Memory Utilization von 0.90 lässt Spielraum für KV-Cache bei langen Kontexten
 - Triton vLLM Backend benötigt `config.pbtxt` UND `1/model.json` pro Model
-- Download-Script: `./scripts/download-model.sh` (interaktive Modell-Auswahl, konfigurierbar via `TENSOR_PARALLEL_SIZE`, `PIPELINE_PARALLEL_SIZE`)
+- Download-Script: `./scripts/download-model.sh` (interaktive Modell-Auswahl, GPU auto-detected via `detect-gpu.sh`, override via `TENSOR_PARALLEL_SIZE`, `PIPELINE_PARALLEL_SIZE`)

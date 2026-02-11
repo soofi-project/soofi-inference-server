@@ -22,7 +22,7 @@ services:
 
     volumes:
       - ${MODEL_REPOSITORY:-../models/model_repository}:/models
-      - huggingface_cache:/root/.cache/huggingface
+      - ${HF_CACHE_DIR:-../models/hf_cache}:/root/.cache/huggingface
 
     environment:
       - HF_TOKEN=${HF_TOKEN}
@@ -118,8 +118,6 @@ services:
       - inference-net
 
 volumes:
-  huggingface_cache:
-    name: triton_hf_cache
   open-webui-data:
     name: open_webui_data
 

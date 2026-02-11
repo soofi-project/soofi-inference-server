@@ -47,6 +47,34 @@ Für Multi-GPU Setups gibt es zwei Modi:
 
 **Pipeline Parallel** ist besser für PCIe-Verbindungen, da weniger häufige GPU-Kommunikation nötig ist.
 
+#### Automatische GPU-Erkennung
+
+Das Script `scripts/detect-gpu.sh` erkennt automatisch GPU-Anzahl und Interconnect-Typ:
+
+```bash
+# GPU-Konfiguration anzeigen
+bash scripts/detect-gpu.sh
+
+# Beispiel-Ausgabe (2x H200 via PCIe):
+# GPU_COUNT=2
+# GPU_INTERCONNECT=pcie
+# TENSOR_PARALLEL_SIZE=1
+# PIPELINE_PARALLEL_SIZE=2
+# CUDA_VISIBLE_DEVICES=0,1
+
+# In anderen Scripts verwenden
+source scripts/detect-gpu.sh
+echo "TP=$TENSOR_PARALLEL_SIZE, PP=$PIPELINE_PARALLEL_SIZE"
+```
+
+Bestehende Env-Vars werden respektiert (kein Override):
+
+```bash
+# Manueller Override
+TENSOR_PARALLEL_SIZE=2 source scripts/detect-gpu.sh
+# -> TENSOR_PARALLEL_SIZE bleibt 2
+```
+
 ### 3. Model Repository
 
 Das Model Repository enthält die Triton-Konfiguration für jedes Modell:
@@ -64,14 +92,11 @@ models/model_repository/
 Neues Modell hinzufügen:
 
 ```bash
-# Interaktive Auswahl
+# Interaktive Auswahl (GPU wird automatisch erkannt)
 ./scripts/download-model.sh
 
-# Mit Pipeline Parallel (für PCIe/H200)
-TENSOR_PARALLEL_SIZE=1 PIPELINE_PARALLEL_SIZE=2 ./scripts/download-model.sh 3
-
-# Mit Tensor Parallel (für NVLink)
-TENSOR_PARALLEL_SIZE=2 PIPELINE_PARALLEL_SIZE=1 ./scripts/download-model.sh 3
+# Manueller Override (z.B. für Tests auf einer GPU)
+TENSOR_PARALLEL_SIZE=1 PIPELINE_PARALLEL_SIZE=1 ./scripts/download-model.sh 3
 ```
 
 ## Deployment
@@ -213,11 +238,17 @@ docker compose pull
 docker compose up -d
 ```
 
-### Cache leeren
+### Model Weight Cache
+
+Model Weights werden in einem Host-Verzeichnis gespeichert (Standard: `models/hf_cache/`).
+Dies ermöglicht direkten Zugriff auf die Weights vom Host und vereinfacht Backups.
 
 ```bash
-docker compose down
-docker volume rm triton_hf_cache
+# Cache-Verzeichnis anpassen (in docker/.env)
+HF_CACHE_DIR=../models/hf_cache
+
+# Cache leeren
+rm -rf models/hf_cache/*
 ```
 
 ## Troubleshooting

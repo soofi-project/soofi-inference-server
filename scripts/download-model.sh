@@ -12,11 +12,15 @@ MODELS_FILE="${SCRIPT_DIR}/models.txt"
 LITELLM_CONFIG="${LITELLM_CONFIG:-${SCRIPT_DIR}/../docker/litellm-config.yaml}"
 LITELLM_UPDATED=false
 
-# GPU Configuration (adjust for your setup)
-# TP=2, PP=1: Tensor Parallelism (default, lower latency)
-# TP=1, PP=2: Pipeline Parallelism (better for PCIe without NVLink)
-TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-2}"
-PIPELINE_PARALLEL_SIZE="${PIPELINE_PARALLEL_SIZE:-1}"
+# GPU Configuration (auto-detected, override via env vars)
+# Source detect-gpu.sh for automatic GPU detection
+if [[ -f "${SCRIPT_DIR}/detect-gpu.sh" ]]; then
+    source "${SCRIPT_DIR}/detect-gpu.sh"
+else
+    # Fallback if detect-gpu.sh is not available
+    TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-1}"
+    PIPELINE_PARALLEL_SIZE="${PIPELINE_PARALLEL_SIZE:-1}"
+fi
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.90}"
 CPU_OFFLOAD_GB="${CPU_OFFLOAD_GB:-0}"  # 0 = disabled, >0 = offload GB to CPU RAM
 
@@ -48,8 +52,8 @@ usage() {
     echo "Environment variables:"
     echo "  HF_TOKEN                 - HuggingFace token (required for gated models)"
     echo "  MODEL_REPO_PATH          - Path to model repository"
-    echo "  TENSOR_PARALLEL_SIZE     - Tensor parallel GPUs (default: 2)"
-    echo "  PIPELINE_PARALLEL_SIZE   - Pipeline parallel stages (default: 1)"
+    echo "  TENSOR_PARALLEL_SIZE     - Tensor parallel GPUs (auto-detected)"
+    echo "  PIPELINE_PARALLEL_SIZE   - Pipeline parallel stages (auto-detected)"
     echo "  GPU_MEMORY_UTILIZATION   - VRAM usage 0.0-1.0 (default: 0.90)"
     echo ""
     echo "Parallelism modes (for 2 GPUs):"
@@ -112,8 +116,17 @@ configure_gpu() {
     echo ""
     echo -e "${BOLD}GPU Parallelism Configuration:${NC}"
     echo "─────────────────────────────────────────────────"
-    echo -e "  ${CYAN}TP=1, PP=2${NC}  Pipeline Parallel (für PCIe ohne NVLink)"
-    echo -e "  ${CYAN}TP=2, PP=1${NC}  Tensor Parallel (für NVLink)"
+    if [[ -n "${GPU_COUNT:-}" ]]; then
+        echo -e "  Detected: ${CYAN}${GPU_COUNT} GPU(s)${NC}, Interconnect: ${CYAN}${GPU_INTERCONNECT:-unknown}${NC}"
+        if [[ "${GPU_INTERCONNECT:-}" == "nvlink" ]]; then
+            echo -e "  Recommendation: ${GREEN}TP=${GPU_COUNT}, PP=1${NC} (NVLink detected)"
+        elif [[ "${GPU_INTERCONNECT:-}" == "pcie" ]]; then
+            echo -e "  Recommendation: ${GREEN}TP=1, PP=${GPU_COUNT}${NC} (PCIe detected)"
+        fi
+        echo "─────────────────────────────────────────────────"
+    fi
+    echo -e "  ${CYAN}TP=1, PP=2${NC}  Pipeline Parallel (for PCIe without NVLink)"
+    echo -e "  ${CYAN}TP=2, PP=1${NC}  Tensor Parallel (for NVLink)"
     echo -e "  ${CYAN}TP=1, PP=1${NC}  Single GPU"
     echo "─────────────────────────────────────────────────"
     echo ""
@@ -176,7 +189,7 @@ update_litellm_config() {
   - model_name: ${model_name}\\
     litellm_params:\\
       model: triton/${model_name}\\
-      api_base: http://triton:8000\\
+      api_base: http://triton:8000/v2/models/${model_name}/generate\\
 "
 
     # Use sed to insert after model_list:
