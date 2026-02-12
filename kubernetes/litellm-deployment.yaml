@@ -1,0 +1,100 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: triton-inference
+data:
+  config.yaml: |
+    model_list:
+      - model_name: qwen2.5-72b
+        litellm_params:
+          model: triton/qwen2.5-72b
+          api_base: http://triton-inference:8000
+
+      - model_name: gpt-4
+        litellm_params:
+          model: triton/qwen2.5-72b
+          api_base: http://triton-inference:8000
+
+      - model_name: gpt-3.5-turbo
+        litellm_params:
+          model: triton/qwen2.5-72b
+          api_base: http://triton-inference:8000
+
+    litellm_settings:
+      drop_params: true
+      set_verbose: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm
+  namespace: triton-inference
+  labels:
+    app: litellm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: litellm
+  template:
+    metadata:
+      labels:
+        app: litellm
+    spec:
+      containers:
+        - name: litellm
+          image: ghcr.io/berriai/litellm:main-latest
+          ports:
+            - containerPort: 4000
+              name: http
+          env:
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-secret
+                  key: master-key
+          args: ["--config", "/app/config.yaml", "--port", "4000"]
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+      volumes:
+        - name: config
+          configMap:
+            name: litellm-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm
+  namespace: triton-inference
+  labels:
+    app: litellm
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 4000
+      targetPort: 4000
+  selector:
+    app: litellm

@@ -1,0 +1,23 @@
+# Available Models
+# Format: model_id|display_name|size|vram
+
+# ═══════════════════════════════════════════════════════════════════
+# Full Precision (FP16/BF16) - für GPUs mit viel VRAM
+# ═══════════════════════════════════════════════════════════════════
+mistralai/Mistral-7B-Instruct-v0.3|Mistral 7B Instruct|7B|~14 GB
+Qwen/Qwen2.5-7B-Instruct|Qwen 2.5 7B Instruct|7B|~14 GB
+Qwen/Qwen2.5-14B-Instruct|Qwen 2.5 14B Instruct|14B|~28 GB
+microsoft/Phi-3-medium-128k-instruct|Phi-3 Medium 14B|14B|~28 GB
+google/gemma-2-27b-it|Gemma 2 27B|27B|~54 GB
+
+# ═══════════════════════════════════════════════════════════════════
+# Quantisiert (AWQ 4-bit) - für GPUs mit wenig VRAM (8-16 GB)
+# ═══════════════════════════════════════════════════════════════════
+Qwen/Qwen2.5-7B-Instruct-AWQ|Qwen 2.5 7B AWQ|7B|~5 GB
+Qwen/Qwen2.5-14B-Instruct-AWQ|Qwen 2.5 14B AWQ|14B|~9 GB
+Qwen/Qwen2.5-32B-Instruct-AWQ|Qwen 2.5 32B AWQ|32B|~18 GB
+Qwen/Qwen2.5-Coder-7B-Instruct-AWQ|Qwen 2.5 Coder 7B AWQ|7B|~5 GB
+Qwen/Qwen2.5-Coder-14B-Instruct-AWQ|Qwen 2.5 Coder 14B AWQ|14B|~9 GB
+Qwen/Qwen2.5-Coder-32B-Instruct-AWQ|Qwen 2.5 Coder 32B AWQ|32B|~18 GB
+TechxGenus/Mistral-7B-Instruct-v0.3-AWQ|Mistral 7B AWQ|7B|~5 GB
+casperhansen/llama-3-8b-instruct-awq|Llama 3 8B AWQ|8B|~6 GB

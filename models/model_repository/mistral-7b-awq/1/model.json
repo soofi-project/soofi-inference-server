@@ -1,0 +1,9 @@
+{
+    "model": "TechxGenus/Mistral-7B-Instruct-v0.3-AWQ",
+    "gpu_memory_utilization": 0.90,
+    "tensor_parallel_size": 1,
+    "pipeline_parallel_size": 1,
+    "dtype": "auto",
+    "quantization": "awq",
+    "max_model_len": 16384
+}

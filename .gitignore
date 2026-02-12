@@ -1,0 +1,32 @@
+# Environment files with secrets
+docker/.env
+.env
+
+# HuggingFace cache
+.cache/
+models/hf_cache/
+
+# Model weights (downloaded at runtime)
+models/model_repository/*/1/*.bin
+models/model_repository/*/1/*.safetensors
+models/model_repository/*/1/*.pt
+models/model_repository/*/1/*.gguf
+
+# Kubernetes secrets
+*-secret.yaml
+kubernetes/secrets.yaml
+secrets/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
