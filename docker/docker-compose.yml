@@ -3,7 +3,7 @@ services:
   # Triton Inference Server with vLLM Backend
   # =============================================================================
   triton:
-    image: ${TRITON_IMAGE:-nvcr.io/nvidia/tritonserver:24.08-vllm-python-py3}
+    image: ${TRITON_IMAGE:-nvcr.io/nvidia/tritonserver:26.01-vllm-python-py3}
     container_name: triton-vllm
     restart: unless-stopped
 

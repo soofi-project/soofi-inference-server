@@ -1,14 +1,27 @@
 # LiteLLM Proxy Configuration
 # Translates OpenAI API calls to Triton Inference Server
+#
+# WICHTIG: api_base muss den vollständigen Pfad enthalten:
+#   http://triton:8000/v2/models/<model_name>/generate
 
 model_list:
-  # Mistral 7B AWQ (quantized, ~5GB VRAM)
+  # Mistral 7B AWQ (quantized, ~3.9 GiB VRAM)
   - model_name: mistral-7b-awq
     litellm_params:
       model: triton/mistral-7b-awq
       api_base: http://triton:8000/v2/models/mistral-7b-awq/generate
 
-  # Alias for OpenAI compatibility
+  # =========================================================================
+  # Server-only Models (auf dem H200-Server aktivieren)
+  # Nemotron im model_repository aktivieren und Kommentare entfernen:
+  # =========================================================================
+  # - model_name: nvidia-nemotron-3-nano-30b
+  #   litellm_params:
+  #     model: triton/nvidia-nemotron-3-nano-30b-a3b-nvfp4
+  #     api_base: http://triton:8000/v2/models/nvidia-nemotron-3-nano-30b-a3b-nvfp4/generate
+
+  # Aliases for OpenAI compatibility
+  # Lokal: zeigt auf Mistral | Server: auf Nemotron umstellen
   - model_name: gpt-4
     litellm_params:
       model: triton/mistral-7b-awq

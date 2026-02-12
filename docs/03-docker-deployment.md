@@ -8,6 +8,33 @@ Triton Inference Server mit vLLM Backend via Docker Compose.
 - Docker mit GPU-Unterstützung verifiziert
 - HuggingFace Token (optional für Qwen, erforderlich für gated Models)
 
+### Treiber / CUDA / Triton Kompatibilität
+
+Die Triton-Container-Images bündeln jeweils eine bestimmte CUDA-Version und erfordern einen Mindest-Treiber auf dem Host. **Bei WSL2 wird der Treiber vom Windows-Host bereitgestellt** und kann nicht aus WSL2 heraus aktualisiert werden.
+
+| Triton Image | CUDA | vLLM | Min. Treiber (Linux) | Min. Treiber (WSL2/Windows) |
+|-------------|------|------|---------------------|-----------------------------|
+| 24.08 | 12.6.0 | 0.5.3 | ≥560.28 | ≥560.76 |
+| 24.09–24.10 | 12.6.1–12.6.2 | 0.5.3 | ≥560.35 | ≥560.94 |
+| 24.11–24.12 | 12.6.3 | 0.5.5 | ≥560.35 | ≥561.17 |
+| 25.01 | 12.8.0 | 0.6.3 | ≥570.26 | ≥570.65 |
+| 25.09 | 13.0.1 | 0.10.1 | ≥575 (≥580.65 empf.) | ≥575 |
+| 25.10 | 13.0.2 | 0.10.2 | ≥575 (≥580.82 empf.) | ≥575 |
+| 25.11 | 13.0.2 | 0.11.0 | ≥575 (≥580.95 empf.) | ≥575 |
+| 25.12 | 13.1.0 | 0.11.1 | ≥575 (≥590.44 empf.) | ≥575 |
+| **26.01** | **13.1.1** | **0.13.0** | **≥575 (≥590.48 empf.)** | **≥575** |
+
+> **Wichtig:** Ab CUDA 13.x gibt es Forward-Compatibility-Probleme mit älteren Treiber-Branches (R418–R560). Für Triton ≥25.09 empfiehlt sich Treiber ≥575.
+>
+> Ab Triton 25.01 werden nur noch GPUs mit **Compute Capability ≥7.5** (Turing und neuer) unterstützt. Ältere GPUs (Pascal, Volta) benötigen Triton ≤24.12.
+
+### vLLM v1 Engine (ab Triton 25.10)
+
+Ab Triton 25.10 ist die **vLLM v1 Engine** Standard. Wichtige Änderungen:
+- `disable_log_requests` wurde entfernt — **nicht** in `model.json` verwenden
+- Python wurde von 3.10 auf 3.12 aktualisiert
+- Neue CUDAGraph-Compilation beim ersten Start (wird danach gecacht)
+
 ## Konfiguration
 
 ### 1. Environment File
@@ -137,12 +164,55 @@ nvidia-smi
 curl http://localhost:8000/v2/health/ready
 
 # Geladene Models
-curl http://localhost:8000/v2/models
+curl -X POST http://localhost:8000/v2/repository/index
+```
+
+## LiteLLM Konfiguration
+
+LiteLLM stellt eine OpenAI-kompatible API bereit und leitet Anfragen an Triton weiter.
+
+### api_base Format
+
+LiteLLM benötigt den **vollständigen Pfad** zum Triton-Generate-Endpoint pro Modell:
+
+```yaml
+# litellm-config.yaml
+model_list:
+  - model_name: mistral-7b-awq
+    litellm_params:
+      model: triton/mistral-7b-awq
+      api_base: http://triton:8000/v2/models/mistral-7b-awq/generate
+```
+
+> **Achtung:** Kürzere Formen wie `http://triton:8000` oder `http://triton:8000/triton/generate` funktionieren **nicht** und führen zu `Invalid Triton API base` bzw. `404 Not Found`.
+
+### OpenAI-Aliases
+
+Für Kompatibilität mit Tools, die feste Modellnamen erwarten:
+
+```yaml
+  - model_name: gpt-4
+    litellm_params:
+      model: triton/mistral-7b-awq
+      api_base: http://triton:8000/v2/models/mistral-7b-awq/generate
 ```
 
 ## API Nutzung
 
-### HTTP Endpoint
+### Via LiteLLM (empfohlen, OpenAI-kompatibel)
+
+```bash
+curl http://localhost:4000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -d '{
+    "model": "mistral-7b-awq",
+    "messages": [{"role": "user", "content": "Was ist Machine Learning?"}],
+    "max_tokens": 100
+  }'
+```
+
+### Via Triton direkt (HTTP)
 
 ```bash
 curl -X POST http://localhost:8000/v2/models/mistral-7b-awq/generate \
@@ -215,6 +285,34 @@ models/model_repository/
 
 Jedes Modell benötigt eigene `config.pbtxt` mit angepassten Parametern.
 
+### Modelle aktivieren/deaktivieren
+
+Triton lädt **alle** Verzeichnisse im `model_repository`. Um ein Modell zu deaktivieren, muss es **aus dem Verzeichnis entfernt** werden:
+
+```bash
+# Modell deaktivieren (aus model_repository verschieben)
+mv models/model_repository/nvidia-nemotron-3-nano-30b-a3b-nvfp4 \
+   models/nvidia-nemotron-3-nano-30b-a3b-nvfp4.disabled
+
+# Modell wieder aktivieren
+mv models/nvidia-nemotron-3-nano-30b-a3b-nvfp4.disabled \
+   models/model_repository/nvidia-nemotron-3-nano-30b-a3b-nvfp4
+```
+
+> **Achtung:** Unterstriche als Prefix (`_modelname/`) funktionieren **nicht** — Triton versucht trotzdem, den Ordner zu laden und crasht mit `"failed to load all models"`.
+
+### Lokales Testen vs. Server-Deployment
+
+| | Lokal (Laptop/WSL2) | Server (H200) |
+|---|---|---|
+| **GPU** | RTX A3000 12GB | 2x H200 141GB |
+| **Modelle** | Nur Mistral 7B AWQ | Mistral + Nemotron 30B |
+| **CUDA_VISIBLE_DEVICES** | `0` | `0,1` |
+| **PIPELINE_PARALLEL_SIZE** | `1` | `2` |
+| **.env anpassen** | Single-GPU Settings | Dual-GPU Settings |
+
+Für lokales Testen: `.env` auf Single-GPU anpassen und große Modelle aus `model_repository` entfernen.
+
 ## Operationen
 
 ### Stack stoppen
@@ -284,6 +382,39 @@ nvidia-smi
 }
 ```
 
+### Treiber zu alt
+
+Fehler: `driver too old (found version XXXXX)` oder Container startet nicht.
+
+**Lösung:** NVIDIA-Treiber aktualisieren (bei WSL2: auf der **Windows-Seite**). Siehe Kompatibilitätstabelle oben.
+
+```bash
+# Treiber-Version prüfen
+nvidia-smi --query-gpu=driver_version --format=csv,noheader
+```
+
+### "Invalid Triton API base" (LiteLLM)
+
+LiteLLM benötigt den vollständigen Pfad zum Generate-Endpoint:
+
+```yaml
+# FALSCH:
+api_base: http://triton:8000
+
+# RICHTIG:
+api_base: http://triton:8000/v2/models/mistral-7b-awq/generate
+```
+
+### "failed to load all models" (Restart-Schleife)
+
+Triton versucht alle Verzeichnisse im `model_repository` zu laden. Deaktivierte Modelle müssen **komplett herausgenommen** werden (nicht nur umbenannt).
+
+```bash
+# Modell aus Repository entfernen
+mv models/model_repository/<model-name> models/<model-name>.disabled
+docker compose restart triton
+```
+
 ### Model lädt nicht
 
 ```bash
@@ -303,6 +434,12 @@ docker compose logs triton | grep "tensor_parallel"
 # GPU Auslastung prüfen
 nvidia-smi dmon
 ```
+
+### WSL2-spezifische Hinweise
+
+- `pin_memory=False` wird automatisch gesetzt (leichter Performance-Nachteil)
+- Treiber-Update nur über Windows möglich (Host → WSL2)
+- Erster Start dauert länger durch CUDAGraph-Compilation (wird gecacht)
 
 ## Nächster Schritt
 

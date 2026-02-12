@@ -184,24 +184,36 @@ update_litellm_config() {
     fi
 
     # Insert new model entry after "model_list:" line
-    local model_entry="\\
-  # ${model_name} via Triton\\
-  - model_name: ${model_name}\\
-    litellm_params:\\
-      model: triton/${model_name}\\
-      api_base: http://triton:8000/v2/models/${model_name}/generate\\
-"
+    local line_num
+    line_num=$(grep -n "^model_list:" "$LITELLM_CONFIG" | head -1 | cut -d: -f1)
+    if [[ -z "$line_num" ]]; then
+        log_warn "'model_list:' not found in $LITELLM_CONFIG"
+        return
+    fi
 
-    # Use sed to insert after model_list:
-    sed -i "/^model_list:/a\\${model_entry}" "$LITELLM_CONFIG"
+    local tmp_file
+    tmp_file=$(mktemp)
+    {
+        head -n "$line_num" "$LITELLM_CONFIG"
+        cat <<ENTRY
+  # ${model_name} via Triton
+  - model_name: ${model_name}
+    litellm_params:
+      model: triton/${model_name}
+      api_base: http://triton:8000/v2/models/${model_name}/generate
+ENTRY
+        tail -n +"$((line_num + 1))" "$LITELLM_CONFIG"
+    } > "$tmp_file"
+    mv "$tmp_file" "$LITELLM_CONFIG"
     log_info "Added '${model_name}' to LiteLLM config."
     LITELLM_UPDATED=true
 
     # Ask if this should be the default model
     read -p "Set as default model (gpt-4/gpt-3.5-turbo alias)? (y/N): " set_default
     if [[ "$set_default" =~ ^[Yy]$ ]]; then
-        # Update gpt-4 and gpt-3.5-turbo aliases
-        sed -i "s|model: triton/.*|model: triton/${model_name}|g" "$LITELLM_CONFIG"
+        # Update model and api_base for gpt-* alias entries
+        sed -i "/model_name: gpt-/{n;n;s|model: triton/.*|model: triton/${model_name}|}" "$LITELLM_CONFIG"
+        sed -i "/model_name: gpt-/{n;n;n;s|api_base:.*|api_base: http://triton:8000/v2/models/${model_name}/generate|}" "$LITELLM_CONFIG"
         log_info "Set '${model_name}' as default model for OpenAI aliases."
     fi
 }
@@ -310,6 +322,10 @@ parameters [
   {
     key: "dtype"
     value: { string_value: "auto" }
+  },
+  {
+    key: "trust_remote_code"
+    value: { string_value: "true" }
   }
 ]
 EOF
@@ -321,14 +337,14 @@ EOF
     {
         echo "{"
         echo "    \"model\": \"${model_id}\","
-        echo "    \"disable_log_requests\": true,"
         echo "    \"gpu_memory_utilization\": ${GPU_MEMORY_UTILIZATION},"
         echo "    \"tensor_parallel_size\": ${TENSOR_PARALLEL_SIZE},"
         echo "    \"pipeline_parallel_size\": ${PIPELINE_PARALLEL_SIZE},"
         if [[ "${CPU_OFFLOAD_GB}" -gt 0 ]]; then
             echo "    \"cpu_offload_gb\": ${CPU_OFFLOAD_GB},"
         fi
-        echo "    \"dtype\": \"auto\""
+        echo "    \"dtype\": \"auto\","
+        echo "    \"trust_remote_code\": true"
         echo "}"
     } > "${model_dir}/1/model.json"
 
