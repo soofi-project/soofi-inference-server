@@ -1,0 +1,39 @@
+# Deployment variables for gpu_nodes
+# Secrets (hf_token, litellm_master_key) are in vault.yaml — encrypt before committing:
+#   ansible-vault encrypt ansible/inventory/group_vars/gpu_nodes/vault.yaml
+
+deploy_dir: /opt/soofi
+triton_image: nvcr.io/nvidia/tritonserver:26.01-vllm-python-py3
+
+# GPU defaults (shared across all models unless overridden per model)
+cuda_visible_devices: "0,1"
+tensor_parallel_size: 1
+pipeline_parallel_size: 2
+gpu_memory_utilization: "0.90"
+max_model_len: 16384
+
+# Models to deploy on Triton
+# Each entry creates its own config.pbtxt + model.json in the model repository.
+# Per-model GPU settings override the defaults above (optional).
+# The OpenAI frontend uses one tokenizer for all models (models[0].hf_name).
+# Token counts in API responses are based on that tokenizer — inference itself is unaffected.
+models:
+  - hf_name: "Qwen/Qwen2.5-72B-Instruct"
+    triton_name: "qwen2.5-72b"
+    # tensor_parallel_size: 1    # override global default if needed
+    # pipeline_parallel_size: 2
+    # gpu_memory_utilization: "0.90"
+    # max_model_len: 16384
+    # quantization: "awq"        # uncomment for AWQ-quantized models
+
+# Ports
+http_port: 8000
+grpc_port: 8001
+metrics_port: 8002
+openai_port: 9000
+litellm_port: 4000
+webui_port: 3000
+
+# Open WebUI
+webui_auth: "true"
+webui_name: "AI Inference Server"

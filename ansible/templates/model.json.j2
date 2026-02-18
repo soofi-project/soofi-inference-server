@@ -1,0 +1,10 @@
+{
+    "model": "{{ item.hf_name }}",
+    "gpu_memory_utilization": {{ item.gpu_memory_utilization | default(gpu_memory_utilization) }},
+    "tensor_parallel_size": {{ item.tensor_parallel_size | default(tensor_parallel_size) }},
+    "pipeline_parallel_size": {{ item.pipeline_parallel_size | default(pipeline_parallel_size) }},
+    "dtype": "auto",
+    "max_model_len": {{ item.max_model_len | default(max_model_len) }}{% if item.quantization is defined %},
+    "quantization": "{{ item.quantization }}"{% endif %}
+
+}

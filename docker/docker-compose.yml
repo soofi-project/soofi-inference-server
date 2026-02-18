@@ -3,7 +3,7 @@ services:
   # Triton Inference Server with vLLM Backend
   # =============================================================================
   triton:
-    image: ${TRITON_IMAGE:-nvcr.io/nvidia/tritonserver:26.01-vllm-python-py3}
+    image: ${TRITON_IMAGE}
     container_name: triton-vllm
     restart: unless-stopped
 
@@ -16,32 +16,28 @@ services:
               capabilities: [gpu]
 
     ports:
-      - "${HTTP_PORT:-8000}:8000"
-      - "${GRPC_PORT:-8001}:8001"
-      - "${METRICS_PORT:-8002}:8002"
+      - "${HTTP_PORT}:8000"
+      - "${GRPC_PORT}:8001"
+      - "${METRICS_PORT}:8002"
+      - "${OPENAI_PORT}:${OPENAI_PORT}"
 
     volumes:
-      - ${MODEL_REPOSITORY:-../models/model_repository}:/models
-      - ${HF_CACHE_DIR:-../models/hf_cache}:/root/.cache/huggingface
+      - ${MODEL_REPOSITORY}:/models
+      - ${HF_CACHE_DIR}:/root/.cache/huggingface
+      - ./triton-start.sh:/triton-start.sh:ro
 
-    environment:
-      - HF_TOKEN=${HF_TOKEN}
-      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1}
+    env_file:
+      - .env
+      - ${ENV_SECRETS_FILE}
 
-    command: >
-      tritonserver
-      --model-repository=/models
-      --log-verbose=1
-      --log-info=1
-      --log-warning=1
-      --log-error=1
+    command: ["bash", "/triton-start.sh"]
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/v2/health/ready"]
       interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 120s
+      retries: 40
+      start_period: 300s
 
     shm_size: '16gb'
 
@@ -58,6 +54,7 @@ services:
 
   # =============================================================================
   # LiteLLM Proxy - OpenAI API Compatibility Layer
+  # TODO T-06-7: remove once OpenAI frontend is validated
   # =============================================================================
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
@@ -65,13 +62,13 @@ services:
     restart: unless-stopped
 
     ports:
-      - "${LITELLM_PORT:-4000}:4000"
+      - "${LITELLM_PORT}:4000"
 
     volumes:
       - ./litellm-config.yaml:/app/config.yaml
 
-    environment:
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+    env_file:
+      - ${ENV_SECRETS_FILE}
 
     command: ["--config", "/app/config.yaml", "--port", "4000"]
 
@@ -91,6 +88,7 @@ services:
 
   # =============================================================================
   # Open WebUI - Chat Interface
+  # TODO T-06-7: remove, move to docker-compose.dev.yml for local testing only
   # =============================================================================
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
@@ -98,16 +96,19 @@ services:
     restart: unless-stopped
 
     ports:
-      - "${WEBUI_PORT:-3000}:8080"
+      - "${WEBUI_PORT}:8080"
 
     volumes:
       - open-webui-data:/app/backend/data
 
+    env_file:
+      - ${ENV_SECRETS_FILE}
+
     environment:
       - OPENAI_API_BASE_URLS=http://litellm:4000/v1
       - OPENAI_API_KEYS=${LITELLM_MASTER_KEY}
-      - WEBUI_AUTH=${WEBUI_AUTH:-true}
-      - WEBUI_NAME=${WEBUI_NAME:-AI Server}
+      - WEBUI_AUTH=true
+      - WEBUI_NAME=AI Inference Server
       - ENABLE_OLLAMA_API=false
 
     depends_on:
