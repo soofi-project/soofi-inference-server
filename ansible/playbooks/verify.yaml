@@ -1,0 +1,21 @@
+---
+- name: Verify GPU Nodes
+  hosts: gpu_nodes
+  gather_facts: true
+  tasks:
+    - name: Check if Docker is installed
+      command: docker --version
+      register: docker_version
+      changed_when: false
+
+    - name: Report Docker version
+      debug:
+        msg: "Host {{ inventory_hostname }} is running {{ docker_version.stdout }}"
+
+    - name: Test Docker connection via Python
+      community.docker.docker_host_info:
+      register: info
+
+    - name: Show Docker Info
+      debug:
+        var: info.host_info.Driver

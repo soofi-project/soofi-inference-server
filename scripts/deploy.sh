@@ -20,7 +20,8 @@ fi
 docker compose -f "$COMPOSE_FILE" up -d $BUILD_FLAG
 
 # Run the playbook inside the container
+# -it required for interactive prompts (SSH key passphrases, sudo password via -K)
 # MSYS_NO_PATHCONV=1 prevents Git Bash from mangling container-internal paths
-MSYS_NO_PATHCONV=1 docker compose -f "$COMPOSE_FILE" exec \
+MSYS_NO_PATHCONV=1 docker compose -f "$COMPOSE_FILE" exec -it \
     ansible \
-    ansible-run site.yaml -i inventory/hosts.yaml "$@"
+    ansible-run site.yaml -i inventory/hosts.yaml --ask-vault-pass "$@"

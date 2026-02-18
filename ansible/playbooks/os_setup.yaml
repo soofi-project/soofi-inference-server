@@ -1,0 +1,86 @@
+---
+- name: OS Base Configuration
+  hosts: gpu_nodes
+  become: true
+  gather_facts: true
+
+  tasks:
+    # ── 1. Base packages ────────────────────────────────────────────────────
+    - name: Install base packages
+      ansible.builtin.apt:
+        name:
+          - build-essential
+          - curl
+          - wget
+          - git
+          - htop
+          - nvme-cli
+          - net-tools
+          - vim
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    # ── 3. Time sync ─────────────────────────────────────────────────────────
+    - name: Enable and start systemd-timesyncd
+      ansible.builtin.systemd:
+        name: systemd-timesyncd
+        enabled: true
+        state: started
+
+    # ── 4. UFW ───────────────────────────────────────────────────────────────
+    - name: Install UFW
+      ansible.builtin.package:
+        name: ufw
+        state: present
+
+    # ── 5. Allow SSH before enabling UFW ─────────────────────────────────────
+    - name: Allow SSH through UFW
+      community.general.ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+
+    # ── 6. Allow Triton inference server ports ───────────────────────────────
+    - name: Allow Triton ports through UFW
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - "8000"  # Triton KServe V2 HTTP
+        - "8001"  # Triton gRPC
+        - "8002"  # Triton Metrics (Prometheus)
+        - "9000"  # Triton OpenAI-compatible API
+
+    # ── 7. Enable UFW with default-deny policy ───────────────────────────────
+    - name: Enable UFW with default deny policy
+      community.general.ufw:
+        state: enabled
+        policy: deny
+
+    # ── 8. System limits ─────────────────────────────────────────────────────
+    - name: Set system resource limits
+      ansible.builtin.lineinfile:
+        path: /etc/security/limits.conf
+        line: "{{ item }}"
+        state: present
+      loop:
+        - "* soft nofile 1048576"
+        - "* hard nofile 1048576"
+        - "* soft memlock unlimited"
+        - "* hard memlock unlimited"
+
+    # ── 9. Disable swap immediately ──────────────────────────────────────────
+    - name: Disable swap immediately
+      ansible.builtin.command:
+        cmd: swapoff -a
+      when: ansible_swaptotal_mb > 0
+      changed_when: ansible_swaptotal_mb > 0
+
+    # ── 10. Disable swap persistently via fstab ──────────────────────────────
+    - name: Comment out swap entries in fstab
+      ansible.builtin.replace:
+        path: /etc/fstab
+        regexp: '^([^#].*\sswap\s.*)$'
+        replace: '# \1'
