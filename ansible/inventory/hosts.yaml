@@ -1,0 +1,7 @@
+gpu_nodes:
+  hosts:
+    gpu-server-01:
+      ansible_host: 10.2.10.33
+      ansible_user: mrk
+  vars:
+    ansible_python_interpreter: /usr/bin/python3

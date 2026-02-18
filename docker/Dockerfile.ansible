@@ -1,0 +1,24 @@
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y \
+    sshpass \
+    openssh-client \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /ansible
+
+RUN pip install --no-cache-dir \
+    ansible-core \
+    docker \
+    requests
+
+# Pre-install requirements from the project
+COPY ansible/requirements.yaml /tmp/requirements.yaml
+RUN ansible-galaxy collection install -r /tmp/requirements.yaml
+
+# fixes 0777 permissions on Windows NTFS mounts for SSH keys and ansible.cfg
+COPY docker/ansible-run.sh /usr/local/bin/ansible-run
+RUN sed -i 's/\r$//' /usr/local/bin/ansible-run && chmod +x /usr/local/bin/ansible-run
+
+ENTRYPOINT ["ansible-playbook"]
