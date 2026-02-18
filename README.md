@@ -116,8 +116,10 @@ To ensure a consistent setup across all lab servers, we use Ansible for provisio
 ### Prerequisites
 
 * **Docker:** Required to build and run the Ansible container locally.
+  * **Linux / WSL:** The `docker-compose-plugin` package must be installed (`apt-get install docker-compose-plugin`). The standalone `docker-compose` binary is not supported.
 * **VPN:** If you are working from outside the DFKI network, you **must have an active VPN connection** to reach the lab infrastructure.
 * **SSH Access:** Your public key must be present in the target server's `~/.ssh/authorized_keys`. The container mounts your `~/.ssh` directory (read-only). An SSH agent is started automatically inside the container — you will be prompted for your key passphrase on each run.
+  * **Linux / WSL:** The SSH key must be in your WSL home directory (`~/.ssh/`), not in the Windows profile. Copy it once if needed: `cp /mnt/c/Users/<name>/.ssh/id_ed25519* ~/.ssh/ && chmod 600 ~/.ssh/id_ed25519`
 
 ### How to add your SSH Key to the Shared Lab Account
 
@@ -147,12 +149,14 @@ ssh mrk@10.2.10.33
 
 ```text
 ansible/
-├── site.yaml                # Main playbook (entrypoint)
+├── site.yaml                # Orchestrator (imports all playbooks)
 ├── ansible.cfg              # Ansible configuration (auto-loaded)
 ├── requirements.yaml        # External roles & collections
-└── inventory/
-    └── hosts.yaml           # Lab server inventory [gpu_nodes]
-
+├── inventory/
+│   └── hosts.yaml           # Lab server inventory [gpu_nodes]
+└── playbooks/
+    ├── os_setup.yaml        # Base OS: packages, NTP, UFW, limits, swap
+    └── verify.yaml          # Verify: Docker connectivity check
 ```
 
 ### Usage
@@ -161,6 +165,7 @@ The `deploy.sh` script is the central entrypoint. It starts a long-running Ansib
 
 ```bash
 # Run the full deployment to all configured nodes
+# (prompts once for SSH key passphrase and once for sudo password)
 ./scripts/deploy.sh
 
 # Perform a dry-run (check mode)
@@ -169,7 +174,7 @@ The `deploy.sh` script is the central entrypoint. It starts a long-running Ansib
 # Target only a specific host from the inventory
 ./scripts/deploy.sh --limit gpu-server-01
 
-# Rebuild the image (required after changes to requirements.yaml)
+# Rebuild the image (required after changes to requirements.yaml or ansible-run.sh)
 ./scripts/deploy.sh --build
 ```
 

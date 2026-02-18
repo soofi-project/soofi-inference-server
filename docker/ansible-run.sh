@@ -1,10 +1,11 @@
 #!/bin/bash
 set -e
 
-# Windows NTFS volume mounts have 0777 permissions, which causes two issues:
-#   1. SSH refuses private keys with permissions too open (requires 600)
-#   2. Ansible ignores ansible.cfg in world-writable directories
-# Fix: copy both to /tmp and set correct permissions before running.
+# Volume mounts cause two platform-specific issues:
+#   Windows NTFS: 0777 permissions — SSH refuses keys/config, Ansible ignores ansible.cfg
+#   Linux: files owned by host UID (e.g. 1000), container runs as root (0) — SSH "Bad owner" error
+# Fix: copy SSH dir and ansible.cfg to /tmp, set root ownership + correct permissions,
+#      then run ansible-playbook with HOME=/tmp so SSH uses /tmp/.ssh instead of /root/.ssh.
 
 # Fix SSH keys: Windows NTFS mounts have 0777 — copy to /tmp and chmod before loading
 mkdir -p /tmp/.ssh
@@ -24,4 +25,6 @@ done
 cp /ansible/ansible.cfg /tmp/ansible.cfg
 chmod 600 /tmp/ansible.cfg
 
-ANSIBLE_CONFIG=/tmp/ansible.cfg ANSIBLE_COLLECTIONS_PATH=/root/.ansible/collections ansible-playbook "$@"
+# HOME=/tmp: SSH resolves ~/.ssh to /tmp/.ssh (the fixed copy) — avoids "Bad owner" on Linux
+# and "permissions too open" on Windows NTFS
+HOME=/tmp ANSIBLE_CONFIG=/tmp/ansible.cfg ANSIBLE_COLLECTIONS_PATH=/root/.ansible/collections ansible-playbook "$@"
