@@ -13,6 +13,11 @@ cp -r /root/.ssh/. /tmp/.ssh/
 chmod 700 /tmp/.ssh
 find /tmp/.ssh -type f -exec chmod 600 {} \;
 
+# Remove macOS-only SSH options that OpenSSH on Linux does not support
+if [[ -f /tmp/.ssh/config ]]; then
+    sed -i '/UseKeychain/Id' /tmp/.ssh/config
+fi
+
 # Start SSH agent and load private keys
 # ssh-add prompts for passphrases via the terminal (requires interactive session: docker compose exec)
 # ansible.cfg sets IdentitiesOnly=yes — SSH uses only agent keys, never /root/.ssh directly (0777)
