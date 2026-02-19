@@ -4,7 +4,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.ansible
-    image: soofi-ansible-runner
+    image: soofi-ansible-runner:${ANSIBLE_RUNNER_VERSION:-0.0.1}
     tty: true
     stdin_open: true
     entrypoint: /bin/sh -c "while sleep 10000; do :; done"
