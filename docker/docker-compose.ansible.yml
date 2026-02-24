@@ -1,0 +1,16 @@
+name: soofi-ansible
+services:
+  ansible:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ansible
+    image: soofi-ansible-runner:${ANSIBLE_RUNNER_VERSION:-0.0.2}
+    tty: true
+    stdin_open: true
+    entrypoint: /bin/sh -c "while sleep 10000; do :; done"
+    environment:
+      - ANSIBLE_FORCE_COLOR=true
+    network_mode: host
+    volumes:
+      - ../ansible:/ansible:cached
+      - ${HOME}/.ssh:/root/.ssh:ro

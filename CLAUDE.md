@@ -9,7 +9,13 @@ This repository contains documentation and scripts for setting up and configurin
 ## Repository Structure
 
 ```
-ai_server_setup/
+soofi-inference-server/
+├── ansible/
+│   ├── site.yaml                # Main playbook (entrypoint)
+│   ├── ansible.cfg              # Ansible configuration (auto-loaded)
+│   ├── requirements.yaml        # Galaxy roles & collections
+│   └── inventory/
+│       └── hosts.yaml           # GPU server inventory [gpu_nodes]
 ├── docs/
 │   ├── 01-os-setup.md           # Ubuntu 24.04 Installation
 │   ├── 02-nvidia-setup.md       # Driver, CUDA, Container Toolkit
@@ -17,6 +23,7 @@ ai_server_setup/
 │   ├── 04-kubernetes-setup.md   # K8s Migration
 │   └── 05-open-webui-setup.md   # Open WebUI + LiteLLM
 ├── docker/
+│   ├── Dockerfile.ansible       # Ansible runner container
 │   ├── docker-compose.yml       # Full Stack (Triton + LiteLLM + Open WebUI)
 │   ├── litellm-config.yaml      # LiteLLM Proxy Configuration
 │   └── .env.example             # Environment Variables
@@ -34,6 +41,7 @@ ai_server_setup/
 │       └── <model_name>/
 │           └── config.pbtxt
 └── scripts/
+    ├── deploy.sh                # Ansible deployment (docker run)
     ├── install-nvidia.sh        # NVIDIA Stack Installation
     ├── detect-gpu.sh            # GPU Detection & Parallelism Config
     ├── download-model.sh        # Model Download (interaktiv)
@@ -43,6 +51,12 @@ ai_server_setup/
 ## Key Commands
 
 ```bash
+# Ansible Deployment
+./scripts/deploy.sh                       # Start container + run playbook
+./scripts/deploy.sh --build              # Rebuild image (after requirements.yaml changes)
+./scripts/deploy.sh --check              # Dry-run (check mode)
+./scripts/deploy.sh --limit gpu-server-01  # Target specific host
+
 # NVIDIA Setup
 ./scripts/install-nvidia.sh              # Driver + CUDA + Container Toolkit
 
