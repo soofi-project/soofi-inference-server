@@ -174,10 +174,17 @@ The script prompts for the Vault password at startup (same as the `mrk` sudo pas
 
 ### Vault — First-Time Setup
 
+Recommended workflow for a fresh server:
+
+1. Edit `ansible/inventory/group_vars/gpu_nodes/vault.yaml` directly and fill in real values (plaintext at this point)
+2. Build the Ansible image and run a full deployment: `./scripts/deploy.sh --build`
+3. Once the deployment succeeds, encrypt the vault: `./scripts/edit-vault.sh --encrypt`
+4. Re-deploy to confirm everything works with the encrypted vault: `./scripts/deploy.sh`
+
 `edit-vault.sh` is the single entrypoint for vault operations — it starts the Ansible container automatically, just like `deploy.sh`:
 
 ```bash
-# First time: fill vault.yaml with real values (plaintext), then encrypt it
+# First time: encrypt vault.yaml after filling with real values
 ./scripts/edit-vault.sh --encrypt
 
 # Edit vault secrets later (opens $EDITOR inside the container)
