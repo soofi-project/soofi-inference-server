@@ -2,5 +2,5 @@
 - import_playbook: playbooks/os_setup.yaml
 - import_playbook: playbooks/nvidia_setup.yaml
 - import_playbook: playbooks/docker_setup.yaml
-- import_playbook: "playbooks/{{ inference_backend | default('vllm') }}_deploy.yaml"
+- import_playbook: "playbooks/{{ inference_backend | default('stack') }}_deploy.yaml"
 - import_playbook: playbooks/verify.yaml

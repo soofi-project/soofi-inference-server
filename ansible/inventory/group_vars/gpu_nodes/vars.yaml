@@ -120,6 +120,34 @@ models:
   #       - "--served-model-name"
   #       - "nemotron-nano-30b"
 
+# Auxiliary services — STT, TTS, etc.
+# Each entry gets its own container in the same Docker network as LiteLLM.
+# LiteLLM routes requests to them via litellm_name.
+aux_services: []
+# To add a service, replace [] with a list:
+#
+  # STT — Speech to Text
+  # - name: "faster-whisper"
+  #   image: "linuxserver/faster-whisper:latest"
+  #   internal_port: 8010       # host-side debug port
+  #   container_port: 8080
+  #   litellm_name: "whisper-1"
+  #   litellm_model: "openai/whisper-1"
+  #   healthcheck_path: "/health"
+  #   environment:
+  #     - "WHISPER__MODEL=large-v3"
+  #     - "PUID=1000"
+  #     - "PGID=1000"
+
+  # TTS — Text to Speech
+  # - name: "kokoro-tts"
+  #   image: "ghcr.io/remsky/kokoro-fastapi-cpu:latest"
+  #   internal_port: 8011
+  #   container_port: 8880
+  #   litellm_name: "tts-1"
+  #   litellm_model: "openai/tts-1"
+  #   healthcheck_path: "/health"
+
 # Ports
 litellm_port: 4000
 webui_port: 3000
