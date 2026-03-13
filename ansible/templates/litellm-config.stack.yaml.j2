@@ -11,7 +11,7 @@ model_list:
       api_key: "dummy"
 
 {% endfor %}
-{% for service in aux_services | default([]) %}
+{% for service in aux_services or [] %}
   - model_name: {{ service.litellm_name }}
     litellm_params:
       model: {{ service.litellm_model }}

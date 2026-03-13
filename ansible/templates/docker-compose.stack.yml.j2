@@ -73,7 +73,7 @@ services:
       - inference-net
 
 {% endfor %}
-{% for service in aux_services | default([]) %}
+{% for service in aux_services or [] %}
   # ===========================================================================
   # Auxiliary: {{ service.name }}
   # ===========================================================================
@@ -124,7 +124,7 @@ services:
       vllm-{{ model.name }}:
         condition: service_healthy
 {% endfor %}
-{% for service in aux_services | default([]) %}
+{% for service in aux_services or [] %}
       {{ service.name }}:
         condition: service_healthy
 {% endfor %}

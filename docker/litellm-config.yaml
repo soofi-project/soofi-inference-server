@@ -9,12 +9,11 @@ model_list:
       api_base: http://vllm-qwen35-122b-fp8:8000/v1
       api_key: "dummy"
 
-  # ── Embed models (currently on Mac Studio — update api_base when ready) ──
-  # - model_name: qwen3-embed-8b
-  #   litellm_params:
-  #     model: openai/qwen3-embed-8b
-  #     api_base: http://mac-studio:7997/v1
-  #     api_key: "dummy"
+  - model_name: qwen3-vl-embedding-8b
+    litellm_params:
+      model: openai/qwen3-vl-embedding-8b
+      api_base: http://vllm-qwen3-vl-embedding-8b:8000/v1
+      api_key: "dummy"
 
 litellm_settings:
   drop_params: true

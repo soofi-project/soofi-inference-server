@@ -45,18 +45,38 @@
     # Downloads model weights before vLLM starts so the health check is not
     # blocked by a multi-hour initial download. Skipped if cache exists (idempotent).
     # async + poll keeps the SSH connection alive during long downloads.
-    - name: Check if model weights are already cached
-      ansible.builtin.stat:
-        path: "{{ deploy_dir }}/models/hf_cache/hub/models--{{ item.hf_name | replace('/', '--') }}"
+    - name: Check for incomplete downloads and clean up
+      ansible.builtin.find:
+        paths: "{{ deploy_dir }}/models/hf_cache/hub"
+        patterns: "*.incomplete"
+        recurse: true
+      register: incomplete_before
+      changed_when: false
+
+    - name: Remove incomplete download files before retrying
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ incomplete_before.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      when: incomplete_before.files | length > 0
+
+    - name: Check if model weights are already cached (no incomplete files)
+      ansible.builtin.find:
+        paths: "{{ deploy_dir }}/models/hf_cache/hub/models--{{ item.hf_name | replace('/', '--') }}/snapshots"
+        file_type: directory
+        recurse: false
       register: model_caches
       loop: "{{ models }}"
       loop_control:
         label: "{{ item.hf_name }}"
+      failed_when: false
 
     - name: Hint — monitor download progress in a separate terminal
       ansible.builtin.debug:
         msg: "To monitor download progress: ssh {{ ansible_user }}@{{ ansible_host }} 'docker logs -f $(docker ps -lq)'"
-      when: model_caches.results | selectattr('stat.exists', 'equalto', false) | list | length > 0
+      when: model_caches.results | selectattr('matched', 'equalto', 0) | list | length > 0
 
     - name: Download model weights from HuggingFace
       ansible.builtin.command:
@@ -70,7 +90,7 @@
           {% endif %}
           {{ item.item.repository | default(vllm_repository) }}:{{ item.item.tag | default(vllm_tag) }}
           download {{ item.item.hf_name }}
-      when: not item.stat.exists
+      when: item.matched == 0
       loop: "{{ model_caches.results }}"
       loop_control:
         label: "{{ item.item.hf_name }}"
@@ -78,14 +98,22 @@
       poll: 30
       changed_when: true
 
-    - name: Verify no incomplete downloads remain
+    - name: Clean up any residual incomplete download files
       ansible.builtin.find:
         paths: "{{ deploy_dir }}/models/hf_cache/hub"
         patterns: "*.incomplete"
         recurse: true
       register: incomplete_files
-      failed_when: incomplete_files.files | length > 0
       changed_when: false
+
+    - name: Remove residual incomplete files (stale blobs from previous runs)
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ incomplete_files.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      when: incomplete_files.files | length > 0
 
     # ── 4. Start stack ────────────────────────────────────────────────────────
     - name: Start inference stack
