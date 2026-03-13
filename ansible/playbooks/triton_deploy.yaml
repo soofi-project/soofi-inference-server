@@ -51,6 +51,22 @@
         group: mrk
         mode: "0755"
 
+    - name: Copy qwen3 tool call parser
+      ansible.builtin.copy:
+        src: /repo/docker/qwen3_tool_call_parser.py
+        dest: "{{ deploy_dir }}/docker/qwen3_tool_call_parser.py"
+        owner: mrk
+        group: mrk
+        mode: "0644"
+
+    - name: Copy qwen3 no-think chat template
+      ansible.builtin.copy:
+        src: /repo/docker/qwen3_no_think.jinja
+        dest: "{{ deploy_dir }}/docker/qwen3_no_think.jinja"
+        owner: mrk
+        group: mrk
+        mode: "0644"
+
     - name: Fix line endings in triton-start.sh (Windows CRLF → Unix LF)
       ansible.builtin.replace:
         path: "{{ deploy_dir }}/docker/triton-start.sh"
@@ -143,6 +159,11 @@
       loop_control:
         label: "{{ item.hf_name }}"
 
+    - name: Hint — monitor download progress in a separate terminal
+      ansible.builtin.debug:
+        msg: "To monitor download progress: ssh {{ ansible_user }}@{{ ansible_host }} 'docker logs -f $(docker ps -lq)'"
+      when: model_caches.results | selectattr('stat.exists', 'equalto', false) | list | length > 0
+
     - name: Download model weights from HuggingFace
       ansible.builtin.command:
         cmd: >-
@@ -162,6 +183,15 @@
       poll: 30
       changed_when: true
 
+    - name: Verify no incomplete downloads remain
+      ansible.builtin.find:
+        paths: "{{ deploy_dir }}/models/hf_cache/hub"
+        patterns: "*.incomplete"
+        recurse: true
+      register: incomplete_files
+      failed_when: incomplete_files.files | length > 0
+      changed_when: false
+
     # ── 5. Start stack ────────────────────────────────────────────────────────
     - name: Start Triton stack
       ansible.builtin.command:
@@ -171,11 +201,17 @@
         'Started' in compose_up.stdout or
         'Created' in compose_up.stdout or
         'Recreated' in compose_up.stdout
+      when: models | length > 0
 
     - name: Show compose output
       ansible.builtin.debug:
         var: compose_up.stdout_lines
-      when: compose_up.changed
+      when: models | length > 0 and (compose_up.changed | default(false))
+
+    - name: Skip Triton start (no models configured)
+      ansible.builtin.debug:
+        msg: "No models in vars.yaml — skipping Triton start and health check."
+      when: models | length == 0
 
     # ── 6. Health check ───────────────────────────────────────────────────────
     # Model weights are already cached, so startup is only limited by model loading time.
@@ -189,15 +225,18 @@
       delay: 30
       changed_when: false
       failed_when: triton_health.rc != 0
+      when: models | length > 0
 
     - name: Query deployed models
       ansible.builtin.uri:
         url: "http://localhost:{{ openai_port | default(9000) }}/v1/models"
         return_content: true
       register: triton_models
+      when: models | length > 0
 
     - name: Triton is ready
       ansible.builtin.debug:
         msg:
           - "Triton is up at http://{{ ansible_host }}:{{ openai_port | default(9000) }}"
           - "Deployed models: {{ triton_models.json.data | map(attribute='id') | list }}"
+      when: models | length > 0

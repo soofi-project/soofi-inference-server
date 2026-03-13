@@ -1,0 +1,5 @@
+ARG TRITON_IMAGE
+FROM ${TRITON_IMAGE}
+
+# Upgrade vLLM to get Qwen3.5 MoE support (vLLM >= 0.17.0)
+RUN pip install --no-cache-dir --upgrade vllm

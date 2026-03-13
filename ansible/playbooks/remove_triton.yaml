@@ -1,0 +1,57 @@
+---
+# Tears down the full inference stack and optionally removes NVIDIA packages.
+# Usage: ./scripts/remove-triton.sh [--nvidia]
+#
+# Without --nvidia: stops containers, removes deploy dir and Docker volumes.
+# With    --nvidia: also purges NVIDIA driver, CUDA toolkit, container toolkit.
+
+- name: Remove Triton Inference Stack
+  hosts: gpu_nodes
+  become: true
+  gather_facts: false
+
+  tasks:
+    # ── 1. Stop Docker stack ─────────────────────────────────────────────────
+    - name: Stop inference stack
+      ansible.builtin.command:
+        cmd: docker compose -f {{ deploy_dir }}/docker/docker-compose.yml down --remove-orphans
+      register: compose_down
+      changed_when: "'Removed' in compose_down.stdout or 'Stopped' in compose_down.stdout"
+      failed_when: false
+
+    - name: Show compose output
+      ansible.builtin.debug:
+        var: compose_down.stderr_lines
+      when: compose_down.rc != 0
+
+    # ── 2. Remove deployment directory ───────────────────────────────────────
+    - name: Remove deployment directory ({{ deploy_dir }})
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}"
+        state: absent
+
+    # ── 3. Remove Docker volumes ─────────────────────────────────────────────
+    - name: Remove Open WebUI Docker volume
+      ansible.builtin.command:
+        cmd: docker volume rm open_webui_data
+      register: vol_rm
+      changed_when: vol_rm.rc == 0
+      failed_when: false
+
+    # ── 4. Remove NVIDIA packages (optional) ─────────────────────────────────
+    - name: Remove NVIDIA packages
+      ansible.builtin.apt:
+        name:
+          - "nvidia-driver-{{ nvidia_driver_version }}-{{ nvidia_driver_branch }}"
+          - "nvidia-persistenced"
+          - "nvidia-container-toolkit"
+          - "cuda-toolkit-{{ cuda_version }}"
+        state: absent
+        purge: true
+        autoremove: true
+      when: remove_nvidia | default(false)
+
+    - name: Reboot after NVIDIA removal
+      ansible.builtin.reboot:
+        reboot_timeout: 300
+      when: remove_nvidia | default(false)

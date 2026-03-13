@@ -41,17 +41,16 @@
         port: "22"
         proto: tcp
 
-    # ── 6. Allow Triton inference server ports ───────────────────────────────
-    - name: Allow Triton ports through UFW
+    # ── 6. Allow inference stack ports ──────────────────────────────────────
+    - name: Allow inference stack ports through UFW
       community.general.ufw:
         rule: allow
         port: "{{ item }}"
         proto: tcp
       loop:
-        - "8000"  # Triton KServe V2 HTTP
-        - "8001"  # Triton gRPC
-        - "8002"  # Triton Metrics (Prometheus)
-        - "9000"  # Triton OpenAI-compatible API
+        - "{{ litellm_port | default('4000') }}"   # LiteLLM — only external API endpoint
+        - "{{ webui_port   | default('3000') }}"   # Open WebUI
+        - "8001"  # vLLM debug port (host-mapped, single model — extend if more models added)
 
     # ── 7. Enable UFW with default-deny policy ───────────────────────────────
     - name: Enable UFW with default deny policy

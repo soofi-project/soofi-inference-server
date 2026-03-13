@@ -25,7 +25,7 @@
       changed_when: true
 
     # ── 2. CUDA repository ────────────────────────────────────────────────────
-    # Must be configured before the driver install — nvidia-driver-590-server
+    # Must be configured before the driver install — the nvidia-driver package
     # is distributed via the CUDA repo, not Ubuntu's standard repo.
     - name: Check if CUDA repository is already configured
       ansible.builtin.stat:
@@ -44,9 +44,10 @@
         deb: /tmp/cuda-keyring_1.1-1_all.deb
       when: not cuda_repo.stat.exists
 
-    # ── 3. NVIDIA Driver ──────────────────────────────────────────────────────
-    # Check first — if any driver is already loaded (nvidia-smi works), skip install.
-    # This prevents accidental downgrades on servers with a newer driver.
+    # ── 3. NVIDIA Driver + Fabric Manager ────────────────────────────────────
+    # Install the open kernel modules (optimized for GSP on Hopper/H200),
+    # the Fabric Manager (required for HBM3e init and P2P addressing),
+    # and the matching compute library (avoids version conflicts).
     - name: Check if NVIDIA driver is already active
       ansible.builtin.command:
         cmd: nvidia-smi
@@ -54,29 +55,44 @@
       changed_when: false
       failed_when: false
 
-    - name: Install NVIDIA driver 590-server
+    - name: "Install NVIDIA driver {{ nvidia_driver_version }}-{{ nvidia_driver_branch }}"
       ansible.builtin.apt:
-        name: nvidia-driver-590-server
+        name:
+          - "nvidia-driver-{{ nvidia_driver_version }}-{{ nvidia_driver_branch }}"
+          - "libnvidia-compute-{{ nvidia_driver_version }}-server"
         state: present
-        update_cache: true  # always refresh — CUDA repo may have just been added
+        update_cache: true
       register: nvidia_driver
       when: nvidia_smi_precheck.rc != 0
 
-    # Reboot is required for the kernel module to load.
-    # Only triggered when the driver was actually installed (changed).
     - name: Reboot after NVIDIA driver install
       ansible.builtin.reboot:
         reboot_timeout: 300
         post_reboot_delay: 15
       when: nvidia_driver.changed | default(false)
 
-    # ── 4. CUDA Toolkit (optional) ───────────────────────────────────────────
+    # ── 4. GPU Runtime Settings ─────────────────────────────────────────────
+    # Persistence mode reduces GPU init latency; GSP performance mode
+    # offloads memory management to the GPU's onboard processor.
+    - name: Enable GPU persistence mode
+      ansible.builtin.command:
+        cmd: nvidia-smi -pm 1
+      register: persistence_mode
+      changed_when: "'Enabled' in persistence_mode.stdout"
+
+    - name: Set GSP firmware to performance mode
+      ansible.builtin.command:
+        cmd: nvidia-smi -pc 1
+      changed_when: false
+      failed_when: false
+
+    # ── 6. CUDA Toolkit (optional) ───────────────────────────────────────────
     # NOT required for Docker-based Triton/vLLM deployments — CUDA is bundled
     # inside the container. Only needed for native (non-container) CUDA workloads
     # (e.g. nvcc on the host). Set install_cuda_toolkit: true to enable.
-    - name: Install CUDA Toolkit 12.4
+    - name: "Install CUDA Toolkit {{ cuda_version | replace('-', '.') }}"
       ansible.builtin.apt:
-        name: cuda-toolkit-12-4
+        name: "cuda-toolkit-{{ cuda_version }}"
         state: present
         update_cache: true
       when: install_cuda_toolkit | default(false)
@@ -85,14 +101,14 @@
       ansible.builtin.copy:
         dest: /etc/profile.d/cuda.sh
         content: |
-          export PATH=/usr/local/cuda-12.4/bin:$PATH
-          export LD_LIBRARY_PATH=/usr/local/cuda-12.4/lib64:$LD_LIBRARY_PATH
+          export PATH=/usr/local/cuda-{{ cuda_version | replace('-', '.') }}/bin:$PATH
+          export LD_LIBRARY_PATH=/usr/local/cuda-{{ cuda_version | replace('-', '.') }}/lib64:$LD_LIBRARY_PATH
         owner: root
         group: root
         mode: "0644"
       when: install_cuda_toolkit | default(false)
 
-    # ── 5. NVIDIA Container Toolkit ───────────────────────────────────────────
+    # ── 7. NVIDIA Container Toolkit ──────────────────────────────────────────
     # Only installs the toolkit. Docker runtime configuration (nvidia-ctk runtime
     # configure) is handled in docker_setup.yaml after Docker is installed.
     - name: Download NVIDIA Container Toolkit GPG key
@@ -119,17 +135,9 @@
       ansible.builtin.apt:
         name: nvidia-container-toolkit
         state: present
-        update_cache: true  # always refresh — CTK repo was just added
+        update_cache: true
 
-    # ── 6. GPU Persistence Mode ───────────────────────────────────────────────
-    # Reduces GPU initialization latency for inference workloads.
-    - name: Enable nvidia-persistenced service
-      ansible.builtin.systemd:
-        name: nvidia-persistenced
-        enabled: true
-        state: started
-
-    # ── 7. Verify ─────────────────────────────────────────────────────────────
+    # ── 8. Verify ────────────────────────────────────────────────────────────
     - name: Verify NVIDIA driver via nvidia-smi
       ansible.builtin.command:
         cmd: nvidia-smi

@@ -1,6 +1,7 @@
 ---
 - name: Verify GPU Nodes
   hosts: gpu_nodes
+  become: true
   gather_facts: true
   tasks:
     - name: Check if Docker is installed

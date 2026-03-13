@@ -32,6 +32,14 @@ output [
 instance_group [
   {
     count: 1
+{% set pp = item.pipeline_parallel_size | default(pipeline_parallel_size) | int %}
+{% set tp = item.tensor_parallel_size | default(tensor_parallel_size) | int %}
+{% if pp > 1 or tp > 1 %}
     kind: KIND_MODEL
+{% else %}
+    kind: KIND_GPU
+    gpus: [ {{ item.cuda_visible_devices | default('0') }} ]
+{% endif %}
   }
 ]
+

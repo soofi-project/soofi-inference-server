@@ -38,11 +38,52 @@ fi
 
 echo "Starting Triton with OpenAI frontend: $OPENAI_FRONTEND"
 
-exec python3 "$OPENAI_FRONTEND" \
+# Locate the qwen3 tool call parser (installed by Dockerfile.triton)
+QWEN3_PARSER="$(dirname "$OPENAI_FRONTEND")/engine/utils/tool_call_parsers/qwen3_tool_call_parser.py"
+
+TOOL_CALL_ARGS=()
+if [[ -n "${TOOL_CALL_PARSER:-}" ]]; then
+    TOOL_CALL_ARGS+=("--tool-call-parser" "${TOOL_CALL_PARSER}")
+fi
+
+# We launch main.py via `python3 -c` + runpy so we can pre-register the
+# Qwen3 tool call parser in the same process before TritonLLMEngine is
+# instantiated (which is when ToolParserManager.get_tool_parser_cls runs).
+# Direct `python3 main.py` would not give us that hook.
+CHAT_TEMPLATE="$(dirname "${OPENAI_FRONTEND}")/../../qwen3_no_think.jinja"
+if [[ ! -f "${CHAT_TEMPLATE}" ]]; then
+    CHAT_TEMPLATE="/opt/tritonserver/python/qwen3_no_think.jinja"
+fi
+
+exec python3 -c "
+import sys, os, runpy
+
+# Fix sys.argv: [-c, FRONTEND, ...args...] -> [FRONTEND, ...args...]
+sys.argv = sys.argv[1:]
+
+# Replicate what 'python3 main.py' does: add main.py's directory to sys.path
+_frontend_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+if _frontend_dir not in sys.path:
+    sys.path.insert(0, _frontend_dir)
+
+# Register Qwen3 tool call parser via normal package import (sys.path already set)
+try:
+    import importlib
+    importlib.import_module('engine.utils.tool_call_parsers.qwen3_tool_call_parser')
+    print('[triton-start] qwen3_coder tool call parser registered')
+except Exception as _e:
+    print(f'[triton-start] WARNING: could not register qwen3_coder parser: {_e}', file=sys.stderr)
+
+# Hand off to the real main.py
+runpy.run_path(sys.argv[0], run_name='__main__')
+" \
+    "${OPENAI_FRONTEND}" \
     --model-repository /models \
-    --tokenizer "${MODEL_NAME:-Qwen/Qwen2.5-72B-Instruct}" \
+    --tokenizer "${MODEL_NAME}" \
+    --chat-template "${CHAT_TEMPLATE}" \
     --host 0.0.0.0 \
     --openai-port "${OPENAI_PORT:-9000}" \
     --enable-kserve-frontends \
     --kserve-http-port 8000 \
-    --kserve-grpc-port 8001
+    --kserve-grpc-port 8001 \
+    "${TOOL_CALL_ARGS[@]}"

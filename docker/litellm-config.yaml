@@ -1,41 +1,21 @@
 # LiteLLM Proxy Configuration
-# Translates OpenAI API calls to Triton Inference Server
-#
-# WICHTIG: api_base muss den vollständigen Pfad enthalten:
-#   http://triton:8000/v2/models/<model_name>/generate
+# Routes OpenAI API calls to vLLM containers via the Docker network.
+# drop_params: true strips unsupported parameters (e.g. parallel_tool_calls from LangGraph).
 
 model_list:
-  # Mistral 7B AWQ (quantized, ~3.9 GiB VRAM)
-  - model_name: mistral-7b-awq
+  - model_name: qwen35-122b-fp8
     litellm_params:
-      model: triton/mistral-7b-awq
-      api_base: http://triton:8000/v2/models/mistral-7b-awq/generate
+      model: openai/qwen35-122b-fp8
+      api_base: http://vllm-qwen35-122b-fp8:8000/v1
+      api_key: "dummy"
 
-  # =========================================================================
-  # Server-only Models (auf dem H200-Server aktivieren)
-  # Nemotron im model_repository aktivieren und Kommentare entfernen:
-  # =========================================================================
-  # - model_name: nvidia-nemotron-3-nano-30b
+  # ── Embed models (currently on Mac Studio — update api_base when ready) ──
+  # - model_name: qwen3-embed-8b
   #   litellm_params:
-  #     model: triton/nvidia-nemotron-3-nano-30b-a3b-nvfp4
-  #     api_base: http://triton:8000/v2/models/nvidia-nemotron-3-nano-30b-a3b-nvfp4/generate
+  #     model: openai/qwen3-embed-8b
+  #     api_base: http://mac-studio:7997/v1
+  #     api_key: "dummy"
 
-  # Aliases for OpenAI compatibility
-  # Lokal: zeigt auf Mistral | Server: auf Nemotron umstellen
-  - model_name: gpt-4
-    litellm_params:
-      model: triton/mistral-7b-awq
-      api_base: http://triton:8000/v2/models/mistral-7b-awq/generate
-
-  - model_name: gpt-3.5-turbo
-    litellm_params:
-      model: triton/mistral-7b-awq
-      api_base: http://triton:8000/v2/models/mistral-7b-awq/generate
-
-# General settings
 litellm_settings:
   drop_params: true
   set_verbose: false
-
-general_settings:
-  master_key: os.environ/LITELLM_MASTER_KEY

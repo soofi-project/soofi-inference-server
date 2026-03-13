@@ -2,38 +2,135 @@
 # Secrets (hf_token, litellm_master_key) are in vault.yaml — encrypt before committing:
 #   ansible-vault encrypt ansible/inventory/group_vars/gpu_nodes/vault.yaml
 
+# NVIDIA stack versions
+nvidia_driver_version: "590"
+nvidia_driver_branch: "server-open"   # open kernel modules (optimized for H200 GSP)
+cuda_version: "12-4"                  # apt format (dash-separated)
+
 deploy_dir: /opt/soofi
-triton_image: nvcr.io/nvidia/tritonserver:26.01-vllm-python-py3
 
-# GPU defaults (shared across all models unless overridden per model)
-cuda_visible_devices: "0,1"
-tensor_parallel_size: 1
-pipeline_parallel_size: 2
-gpu_memory_utilization: "0.90"
-max_model_len: 16384
+# vLLM image defaults — override per model if needed
+vllm_repository: "vllm/vllm-openai"
+vllm_tag: "v0.17.1"
 
-# Models to deploy on Triton
-# Each entry creates its own config.pbtxt + model.json in the model repository.
-# Per-model GPU settings override the defaults above (optional).
-# The OpenAI frontend uses one tokenizer for all models (models[0].hf_name).
-# Token counts in API responses are based on that tokenizer — inference itself is unaffected.
+# Models to deploy — each gets its own vllm/vllm-openai container.
+# Adding a model = adding one entry here; no other file needs to change.
+# repository/tag are optional — fall back to vllm_repository/vllm_tag above.
 models:
-  - hf_name: "Qwen/Qwen2.5-72B-Instruct"
-    triton_name: "qwen2.5-72b"
-    # tensor_parallel_size: 1    # override global default if needed
-    # pipeline_parallel_size: 2
-    # gpu_memory_utilization: "0.90"
-    # max_model_len: 16384
-    # quantization: "awq"        # uncomment for AWQ-quantized models
+
+  - name: "qwen35-35b-fp8"
+    hf_name: "Qwen/Qwen3.5-35B-A3B-FP8"
+    gpu_ids: ["0"]
+    internal_port: 8001
+    vllmConfig:
+      tensorParallelSize: 1
+      gpuMemoryUtilization: 0.92
+      maxModelLen: 32768
+      dtype: "auto"
+      enablePrefixCaching: true
+      enableChunkedPrefill: false
+      extraArgs:
+        - "--served-model-name"
+        - "qwen35-35b-fp8"
+        - "--enable-auto-tool-choice"
+        - "--tool-call-parser"
+        - "qwen3_coder"
+        - "--reasoning-parser"
+        - "qwen3"
+        - "--swap-space"
+        - "16"
+        - "--max-num-seqs"
+        - "8"
+
+  - name: "qwen3-embedding-8b"
+    hf_name: "Qwen/Qwen3-Embedding-8B"
+    gpu_ids: ["1"]
+    internal_port: 8002
+    vllmConfig:
+      tensorParallelSize: 1
+      gpuMemoryUtilization: 0.50
+      maxModelLen: 32768
+      dtype: "auto"
+      enablePrefixCaching: false
+      enableChunkedPrefill: false
+      extraArgs:
+        - "--served-model-name"
+        - "qwen3-embedding-8b"
+        - "--task"
+        - "embed"
+
+  # 122B — beide GPUs, TP=2
+  # - name: "qwen35-122b-fp8"
+  #   hf_name: "Qwen/Qwen3.5-122B-A10B-FP8"
+  #   gpu_ids: ["0", "1"]
+  #   internal_port: 8001
+  #   vllmConfig:
+  #     tensorParallelSize: 2
+  #     gpuMemoryUtilization: 0.90
+  #     maxModelLen: 32768
+  #     dtype: "auto"
+  #     enablePrefixCaching: true
+  #     enableChunkedPrefill: false
+  #     extraArgs:
+  #       - "--served-model-name"
+  #       - "qwen35-122b-fp8"
+  #       - "--enable-auto-tool-choice"
+  #       - "--tool-call-parser"
+  #       - "qwen3_coder"
+  #       - "--reasoning-parser"
+  #       - "qwen3"
+  #       - "--swap-space"
+  #       - "16"
+  #       - "--max-num-seqs"
+  #       - "8"
+
+  # Coding (enable when weights are available)
+  # - name: "qwen3-coder-next-fp8"
+  #   hf_name: "Qwen/Qwen3-Coder-Next-FP8"
+  #   gpu_ids: ["0", "1"]
+  #   internal_port: 8002
+  #   vllmConfig:
+  #     tensorParallelSize: 2
+  #     gpuMemoryUtilization: 0.90
+  #     maxModelLen: 32768
+  #     dtype: "auto"
+  #     enablePrefixCaching: true
+  #     enableChunkedPrefill: false
+  #     extraArgs:
+  #       - "--served-model-name"
+  #       - "qwen3-coder-next-fp8"
+  #       - "--enable-auto-tool-choice"
+  #       - "--tool-call-parser"
+  #       - "qwen3_coder"
+  #       - "--reasoning-parser"
+  #       - "qwen3"
+
+  # - name: "nemotron-nano-30b"
+  #   hf_name: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8"
+  #   gpu_ids: ["1"]
+  #   internal_port: 8004
+  #   vllmConfig:
+  #     tensorParallelSize: 1
+  #     gpuMemoryUtilization: 0.50
+  #     maxModelLen: 32768
+  #     dtype: "auto"
+  #     enablePrefixCaching: true
+  #     enableChunkedPrefill: false
+  #     extraArgs:
+  #       - "--served-model-name"
+  #       - "nemotron-nano-30b"
 
 # Ports
-http_port: 8000
-grpc_port: 8001
-metrics_port: 8002
-openai_port: 9000
 litellm_port: 4000
 webui_port: 3000
 
 # Open WebUI
 webui_auth: "true"
 webui_name: "AI Inference Server"
+
+# triton (deprecated — kept for reference)
+# triton_image: nvcr.io/nvidia/tritonserver:26.02-vllm-python-py3
+# http_port: 8000
+# grpc_port: 8001
+# metrics_port: 8002
+# openai_port: 9000
