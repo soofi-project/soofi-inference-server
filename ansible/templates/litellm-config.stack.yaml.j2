@@ -11,14 +11,25 @@ model_list:
       api_key: "dummy"
 
 {% endfor %}
-{% for service in aux_services or [] %}
-  - model_name: {{ service.litellm_name }}
+{% if stt_service is defined and stt_service.litellm_name is defined %}
+  - model_name: {{ stt_service.litellm_name }}
     litellm_params:
-      model: {{ service.litellm_model }}
-      api_base: http://{{ service.name }}:{{ service.container_port }}/v1
+      model: {{ stt_service.litellm_model }}
+      api_base: http://{{ stt_service.container_name }}:{{ stt_service.container_port }}/v1
       api_key: "dummy"
 
-{% endfor %}
+{% endif %}
+{% if tts_service is defined and tts_service.litellm_name is defined %}
+  - model_name: {{ tts_service.litellm_name }}
+    litellm_params:
+      model: {{ tts_service.litellm_model }}
+      api_base: http://{{ tts_service.container_name }}:{{ tts_service.container_port }}/v1
+      api_key: "dummy"
+
+{% endif %}
 litellm_settings:
   drop_params: true
   set_verbose: false
+
+router_settings:
+  timeout: 120

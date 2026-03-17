@@ -4,7 +4,22 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:docs.nvidia.com)",
       "WebFetch(domain:github.com)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(find /c/repo/soofi/soofi-trainer -name \"nginx.conf\" -o -name \".conf\" -o -name \"Dockerfile*\" | xargs grep -l \"stt\\\\|tts\\\\|api\" 2>/dev/null | head -10)",
+      "WebFetch(domain:docs.vllm.ai)",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "mcp__plugin_context7_context7__query-docs",
+      "WebFetch(domain:speaches-ai.github.io)",
+      "WebFetch(domain:speaches.ai)",
+      "WebFetch(domain:portalzine.de)",
+      "WebFetch(domain:www.reddit.com)",
+      "WebFetch(domain:tts-samples.com)",
+      "WebFetch(domain:docs.fish.audio)",
+      "WebFetch(domain:speech.fish.audio)",
+      "WebFetch(domain:rhasspy.github.io)",
+      "Bash(curl:*)",
+      "WebFetch(domain:ghcr.io)",
+      "Bash(docker run:*)"
     ]
   }
 }
