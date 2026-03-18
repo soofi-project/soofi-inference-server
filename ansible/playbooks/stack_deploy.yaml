@@ -33,6 +33,22 @@
         group: "{{ ansible_user }}"
         mode: "0600"
 
+    - name: Create chat templates directory
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}/models/chat_templates"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+
+    - name: Deploy reranker chat template
+      ansible.builtin.copy:
+        src: ../files/qwen3_reranker.jinja
+        dest: "{{ deploy_dir }}/models/chat_templates/qwen3_reranker.jinja"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+
     - name: Deploy litellm-config.yaml from template
       ansible.builtin.template:
         src: ../templates/litellm-config.stack.yaml.j2

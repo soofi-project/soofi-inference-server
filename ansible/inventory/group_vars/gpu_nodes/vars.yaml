@@ -138,6 +138,28 @@ models:
   #       - "--served-model-name"
   #       - "nemotron-nano-30b"
 
+  # ── Reranker (Qwen3, cross-encoder via vLLM score task, GPU 1, ~8 GB) ──────
+  - name: "qwen3-reranker-4b"
+    hf_name: "Qwen/Qwen3-Reranker-4B"
+    gpu_ids: ["1"]
+    internal_port: 8003
+    vllmConfig:
+      tensorParallelSize: 1
+      gpuMemoryUtilization: 0.15
+      maxModelLen: 8192
+      dtype: "auto"
+      extraArgs:
+        - "--served-model-name"
+        - "qwen3-reranker-4b"
+        - "--runner"
+        - "pooling"
+        - "--hf-overrides"
+        - '{"architectures": ["Qwen3ForSequenceClassification"], "classifier_from_token": ["no", "yes"], "is_original_qwen3_reranker": true}'
+        - "--chat-template"
+        - "/app/chat_templates/qwen3_reranker.jinja"
+    extraVolumes:
+      - "{{ deploy_dir }}/models/chat_templates:/app/chat_templates:ro"
+
 # ── STT Service (speaches / faster-whisper) ──────────────────────────────────
 stt_service:
   container_name: "faster-whisper"
