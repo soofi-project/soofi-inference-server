@@ -191,7 +191,7 @@ litellm_port: 4000
 webui_port: 3000
 
 # Open WebUI
-webui_auth: "true"
+webui_auth: "false"
 webui_name: "AI Inference Server"
 
 # triton (deprecated — kept for reference)

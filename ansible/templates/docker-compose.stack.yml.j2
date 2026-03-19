@@ -189,6 +189,9 @@ services:
       - WEBUI_AUTH={{ webui_auth | default('true') }}
       - WEBUI_NAME={{ webui_name | default('AI Inference Server') }}
       - ENABLE_OLLAMA_API=false
+      - OFFLINE_MODE=true
+      - RAG_EMBEDDING_MODEL_AUTO_UPDATE=false
+      - RAG_RERANKING_MODEL_AUTO_UPDATE=false
 
     depends_on:
       litellm:
