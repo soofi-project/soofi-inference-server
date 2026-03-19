@@ -159,5 +159,5 @@
         msg:
           - "LiteLLM API: http://{{ ansible_host }}:{{ litellm_port | default(4000) }}/v1"
           - "Open WebUI:  http://{{ ansible_host }}:{{ webui_port | default(3000) }}"
-          - "Deployed models: {{ litellm_models.json.data | map(attribute='id') | list }}"
+          - "Deployed models: {{ (litellm_models.json.data | map(attribute='id') | list) if litellm_models.json is defined else '(skipped in check mode)' }}"
       when: models | length > 0
