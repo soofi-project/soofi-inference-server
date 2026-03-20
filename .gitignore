@@ -1,6 +1,3 @@
-# Environment files with secrets
-docker/.env
-.env
 
 # HuggingFace cache
 .cache/

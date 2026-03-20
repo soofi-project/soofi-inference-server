@@ -1,0 +1,11 @@
+{
+    "model": "{{ item.hf_name }}",
+    "gpu_memory_utilization": {{ item.gpu_memory_utilization | default(gpu_memory_utilization) }},
+    "tensor_parallel_size": {{ item.tensor_parallel_size | default(tensor_parallel_size) }},
+    "pipeline_parallel_size": {{ item.pipeline_parallel_size | default(pipeline_parallel_size) }},
+    "dtype": "{{ item.dtype | default('auto') }}",
+    "max_model_len": {{ item.max_model_len | default(max_model_len) }}{% if item.model_impl is defined %},
+    "model_impl": "{{ item.model_impl }}"{% endif %}{% if item.quantization is defined %},
+    "quantization": "{{ item.quantization }}"{% endif %}{% if item.enable_prefix_caching is defined %},
+    "enable_prefix_caching": {{ item.enable_prefix_caching | lower }}{% endif %}
+}

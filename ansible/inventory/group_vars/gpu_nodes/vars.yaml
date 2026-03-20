@@ -1,0 +1,177 @@
+# Deployment variables for gpu_nodes
+# Secrets (hf_token, litellm_master_key) are in vault.yaml — encrypt before committing:
+#   ansible-vault encrypt ansible/inventory/group_vars/gpu_nodes/vault.yaml
+
+# NVIDIA stack versions
+nvidia_driver_version: "590"
+nvidia_driver_branch: "server-open"   # open kernel modules (optimized for H200 GSP)
+cuda_version: "12-4"                  # apt format (dash-separated)
+
+deploy_dir: /opt/soofi
+
+# vLLM image defaults — override per model if needed
+vllm_repository: "vllm/vllm-openai"
+vllm_tag: "v0.17.1"
+
+# Models to deploy — each gets its own vllm/vllm-openai container.
+# Adding a model = adding one entry here; no other file needs to change.
+# repository/tag are optional — fall back to vllm_repository/vllm_tag above.
+models:
+
+  - name: "qwen35-35b-fp8"
+    hf_name: "Qwen/Qwen3.5-35B-A3B-FP8"
+    gpu_ids: ["0"]
+    vllmConfig:
+      tensorParallelSize: 1
+      gpuMemoryUtilization: 0.92
+      maxModelLen: 32768
+      dtype: "auto"
+      enablePrefixCaching: true
+      enableChunkedPrefill: false
+      extraArgs:
+        - "--served-model-name"
+        - "qwen35-35b-fp8"
+        - "--enable-auto-tool-choice"
+        - "--tool-call-parser"
+        - "qwen3_coder"
+        - "--reasoning-parser"
+        - "qwen3"
+        - "--swap-space"
+        - "16"
+        - "--max-num-seqs"
+        - "8"
+
+  - name: "qwen3-embedding-8b"
+    hf_name: "Qwen/Qwen3-Embedding-8B"
+    gpu_ids: ["1"]
+    vllmConfig:
+      tensorParallelSize: 1
+      gpuMemoryUtilization: 0.50
+      maxModelLen: 32768
+      dtype: "auto"
+      enablePrefixCaching: false
+      enableChunkedPrefill: false
+      extraArgs:
+        - "--served-model-name"
+        - "qwen3-embedding-8b"
+
+  # VL Embedding — only useful if the LLM agent is also a VLM (e.g. Qwen2.5-VL)
+  # Switch back to this once a Vision-Language Model is deployed as main LLM.
+  # - name: "qwen3-vl-embedding-8b"
+  #   hf_name: "Qwen/Qwen3-VL-Embedding-8B"
+  #   gpu_ids: ["1"]
+
+  #   vllmConfig:
+  #     tensorParallelSize: 1
+  #     gpuMemoryUtilization: 0.50
+  #     maxModelLen: 32768
+  #     dtype: "auto"
+  #     enablePrefixCaching: false
+  #     enableChunkedPrefill: false
+  #     extraArgs:
+  #       - "--served-model-name"
+  #       - "qwen3-vl-embedding-8b"
+
+  # 122B — beide GPUs, TP=2
+  # - name: "qwen35-122b-fp8"
+  #   hf_name: "Qwen/Qwen3.5-122B-A10B-FP8"
+  #   gpu_ids: ["0", "1"]
+
+  #   vllmConfig:
+  #     tensorParallelSize: 2
+  #     gpuMemoryUtilization: 0.90
+  #     maxModelLen: 32768
+  #     dtype: "auto"
+  #     enablePrefixCaching: true
+  #     enableChunkedPrefill: false
+  #     extraArgs:
+  #       - "--served-model-name"
+  #       - "qwen35-122b-fp8"
+  #       - "--enable-auto-tool-choice"
+  #       - "--tool-call-parser"
+  #       - "qwen3_coder"
+  #       - "--reasoning-parser"
+  #       - "qwen3"
+  #       - "--swap-space"
+  #       - "16"
+  #       - "--max-num-seqs"
+  #       - "8"
+
+  # Coding (enable when weights are available)
+  # - name: "qwen3-coder-next-fp8"
+  #   hf_name: "Qwen/Qwen3-Coder-Next-FP8"
+  #   gpu_ids: ["0", "1"]
+
+  #   vllmConfig:
+  #     tensorParallelSize: 2
+  #     gpuMemoryUtilization: 0.90
+  #     maxModelLen: 32768
+  #     dtype: "auto"
+  #     enablePrefixCaching: true
+  #     enableChunkedPrefill: false
+  #     extraArgs:
+  #       - "--served-model-name"
+  #       - "qwen3-coder-next-fp8"
+  #       - "--enable-auto-tool-choice"
+  #       - "--tool-call-parser"
+  #       - "qwen3_coder"
+  #       - "--reasoning-parser"
+  #       - "qwen3"
+
+  # - name: "nemotron-nano-30b"
+  #   hf_name: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8"
+  #   gpu_ids: ["1"]
+
+  #   vllmConfig:
+  #     tensorParallelSize: 1
+  #     gpuMemoryUtilization: 0.50
+  #     maxModelLen: 32768
+  #     dtype: "auto"
+  #     enablePrefixCaching: true
+  #     enableChunkedPrefill: false
+  #     extraArgs:
+  #       - "--served-model-name"
+  #       - "nemotron-nano-30b"
+
+# Auxiliary services — STT, TTS, etc.
+# Each entry gets its own container in the same Docker network as LiteLLM.
+# LiteLLM routes requests to them via litellm_name.
+aux_services: []
+# To add a service, replace [] with a list:
+#
+  # STT — Speech to Text
+  # - name: "faster-whisper"
+  #   image: "linuxserver/faster-whisper:latest"
+  #   internal_port: 8010       # host-side debug port
+  #   container_port: 8080
+  #   litellm_name: "whisper-1"
+  #   litellm_model: "openai/whisper-1"
+  #   healthcheck_path: "/health"
+  #   environment:
+  #     - "WHISPER__MODEL=large-v3"
+  #     - "PUID=1000"
+  #     - "PGID=1000"
+
+  # TTS — Text to Speech
+  # - name: "kokoro-tts"
+  #   image: "ghcr.io/remsky/kokoro-fastapi-cpu:latest"
+  #   internal_port: 8011
+  #   container_port: 8880
+  #   litellm_name: "tts-1"
+  #   litellm_model: "openai/tts-1"
+  #   healthcheck_path: "/health"
+
+# Ports
+litellm_port: 4000
+webui_port: 3000
+
+# Open WebUI
+webui_auth: "true"
+webui_name: "AI Inference Server"
+
+# triton (deprecated — kept for reference)
+# triton_image: nvcr.io/nvidia/tritonserver:26.02-vllm-python-py3
+# http_port: 8000
+# grpc_port: 8001
+# metrics_port: 8002
+# openai_port: 9000

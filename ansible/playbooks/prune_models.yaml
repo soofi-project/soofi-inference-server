@@ -1,0 +1,46 @@
+---
+# Removes HF cache directories for models no longer listed in vars.yaml.
+# Model config directories are already cleaned up by triton_deploy.yaml —
+# this playbook handles the large cached weights that are left behind.
+#
+# Usage: ./scripts/prune-models.sh
+
+- name: Prune Orphaned Model Caches
+  hosts: gpu_nodes
+  become: true
+  gather_facts: false
+
+  vars:
+    hf_cache_dir: "{{ deploy_dir }}/models/hf_cache/hub"
+    active_cache_dirs: "{{ models | map(attribute='hf_name') | map('replace', '/', '--') | map('regex_replace', '^', 'models--') | list }}"
+
+  tasks:
+    - name: Find cached model directories
+      ansible.builtin.find:
+        paths: "{{ hf_cache_dir }}"
+        file_type: directory
+        patterns: "models--*"
+        depth: 1
+      register: cached_dirs
+
+    - name: Identify orphaned caches
+      ansible.builtin.set_fact:
+        orphaned_dirs: "{{ cached_dirs.files | map(attribute='path') | select('match', '.*') | list | difference(active_cache_dirs | map('regex_replace', '^', hf_cache_dir ~ '/') | list) }}"
+
+    - name: Show orphaned caches
+      ansible.builtin.debug:
+        msg: "Orphaned cache (will be removed): {{ item | basename }}"
+      loop: "{{ orphaned_dirs }}"
+      when: orphaned_dirs | length > 0
+
+    - name: No orphaned caches found
+      ansible.builtin.debug:
+        msg: "All cached models are active — nothing to prune."
+      when: orphaned_dirs | length == 0
+
+    - name: Remove orphaned model caches
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ orphaned_dirs }}"
+      when: orphaned_dirs | length > 0

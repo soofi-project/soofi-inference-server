@@ -13,4 +13,5 @@ services:
     network_mode: host
     volumes:
       - ../ansible:/ansible:cached
+      - ..:/repo:ro              # project root — source for copy/template tasks
       - ${HOME}/.ssh:/root/.ssh:ro

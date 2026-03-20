@@ -4,6 +4,7 @@ RUN apt-get update && apt-get install -y \
     sshpass \
     openssh-client \
     git \
+    vim \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /ansible

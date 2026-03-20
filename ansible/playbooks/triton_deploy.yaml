@@ -1,0 +1,242 @@
+---
+# Required variables (from vault):
+#   hf_token           — HuggingFace API token
+#   litellm_master_key — LiteLLM proxy master key
+#
+# Model & hardware settings come from group_vars/gpu_nodes/vars.yaml.
+# To add or change a model, edit the models list there — nowhere else.
+
+- name: Triton Inference Server Deployment
+  hosts: gpu_nodes
+  become: true
+  gather_facts: false
+
+  tasks:
+    # ── 1. Directories ────────────────────────────────────────────────────────
+    - name: Create deployment directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: mrk
+        group: mrk
+        mode: "0755"
+      loop:
+        - "{{ deploy_dir }}"
+        - "{{ deploy_dir }}/docker"
+        - "{{ deploy_dir }}/models/model_repository"
+        - "{{ deploy_dir }}/models/hf_cache"
+
+    # ── 2. Config files ───────────────────────────────────────────────────────
+    - name: Copy docker-compose.yml
+      ansible.builtin.copy:
+        src: /repo/docker/docker-compose.triton.yml
+        dest: "{{ deploy_dir }}/docker/docker-compose.yml"
+        owner: mrk
+        group: mrk
+        mode: "0644"
+
+    - name: Copy litellm-config.yaml
+      ansible.builtin.copy:
+        src: /repo/docker/litellm-config.triton.yaml
+        dest: "{{ deploy_dir }}/docker/litellm-config.yaml"
+        owner: mrk
+        group: mrk
+        mode: "0644"
+
+    - name: Copy triton-start.sh
+      ansible.builtin.copy:
+        src: /repo/docker/triton-start.sh
+        dest: "{{ deploy_dir }}/docker/triton-start.sh"
+        owner: mrk
+        group: mrk
+        mode: "0755"
+
+    - name: Copy qwen3 tool call parser
+      ansible.builtin.copy:
+        src: /repo/docker/qwen3_tool_call_parser.py
+        dest: "{{ deploy_dir }}/docker/qwen3_tool_call_parser.py"
+        owner: mrk
+        group: mrk
+        mode: "0644"
+
+    - name: Copy qwen3 no-think chat template
+      ansible.builtin.copy:
+        src: /repo/docker/qwen3_no_think.jinja
+        dest: "{{ deploy_dir }}/docker/qwen3_no_think.jinja"
+        owner: mrk
+        group: mrk
+        mode: "0644"
+
+    - name: Fix line endings in triton-start.sh (Windows CRLF → Unix LF)
+      ansible.builtin.replace:
+        path: "{{ deploy_dir }}/docker/triton-start.sh"
+        regexp: '\r'
+        replace: ''
+
+    - name: Deploy .env file
+      ansible.builtin.template:
+        src: ../templates/triton.env.j2
+        dest: "{{ deploy_dir }}/docker/.env"
+        owner: mrk
+        group: mrk
+        mode: "0600"
+
+    # ── 3. Model configs (generated from vars.yaml — single source of truth) ───
+    # The models list in group_vars/gpu_nodes/vars.yaml drives everything.
+    # Adding a model = adding one entry to the list; no other file needs to change.
+
+    # Cleanup: remove config directories for models no longer in vars.yaml.
+    # Only removes the small config dirs — never touches the HF cache (use remove-model.sh for that).
+    - name: Find deployed model config directories
+      ansible.builtin.find:
+        paths: "{{ deploy_dir }}/models/model_repository"
+        file_type: directory
+        depth: 1
+      register: deployed_model_dirs
+
+    - name: Remove model configs no longer in vars.yaml
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      when: item.path | basename not in models | map(attribute='triton_name') | list
+      loop: "{{ deployed_model_dirs.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+
+    - name: Create model config directories
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}/models/model_repository/{{ item.triton_name }}"
+        state: directory
+        owner: mrk
+        group: mrk
+        mode: "0755"
+      loop: "{{ models }}"
+      loop_control:
+        label: "{{ item.triton_name }}"
+
+    - name: Create model version directories
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}/models/model_repository/{{ item.triton_name }}/1"
+        state: directory
+        owner: mrk
+        group: mrk
+        mode: "0755"
+      loop: "{{ models }}"
+      loop_control:
+        label: "{{ item.triton_name }}"
+
+    - name: Deploy Triton model configs (config.pbtxt)
+      ansible.builtin.template:
+        src: ../templates/config.pbtxt.j2
+        dest: "{{ deploy_dir }}/models/model_repository/{{ item.triton_name }}/config.pbtxt"
+        owner: mrk
+        group: mrk
+        mode: "0644"
+      loop: "{{ models }}"
+      loop_control:
+        label: "{{ item.triton_name }}"
+
+    - name: Deploy vLLM model configs (model.json)
+      ansible.builtin.template:
+        src: ../templates/model.json.j2
+        dest: "{{ deploy_dir }}/models/model_repository/{{ item.triton_name }}/1/model.json"
+        owner: mrk
+        group: mrk
+        mode: "0644"
+      loop: "{{ models }}"
+      loop_control:
+        label: "{{ item.triton_name }}"
+
+    # ── 4. Model pre-download ─────────────────────────────────────────────────
+    # Downloads model weights before Triton starts so the health check is not
+    # blocked by a multi-hour initial download. Skipped if cache exists (idempotent).
+    # async + poll keeps the SSH connection alive during long downloads.
+    - name: Check if model weights are already cached
+      ansible.builtin.stat:
+        path: "{{ deploy_dir }}/models/hf_cache/hub/models--{{ item.hf_name | replace('/', '--') }}"
+      register: model_caches
+      loop: "{{ models }}"
+      loop_control:
+        label: "{{ item.hf_name }}"
+
+    - name: Hint — monitor download progress in a separate terminal
+      ansible.builtin.debug:
+        msg: "To monitor download progress: ssh {{ ansible_user }}@{{ ansible_host }} 'docker logs -f $(docker ps -lq)'"
+      when: model_caches.results | selectattr('stat.exists', 'equalto', false) | list | length > 0
+
+    - name: Download model weights from HuggingFace
+      ansible.builtin.command:
+        cmd: >-
+          docker run --rm
+          -v {{ deploy_dir }}/models/hf_cache:/root/.cache/huggingface
+          {% if hf_token | default('') | regex_search('^hf_') %}
+          -e HF_TOKEN={{ hf_token }}
+          -e HUGGING_FACE_HUB_TOKEN={{ hf_token }}
+          {% endif %}
+          {{ triton_image }}
+          huggingface-cli download {{ item.item.hf_name }}
+      when: not item.stat.exists
+      loop: "{{ model_caches.results }}"
+      loop_control:
+        label: "{{ item.item.hf_name }}"
+      async: 7200
+      poll: 30
+      changed_when: true
+
+    - name: Verify no incomplete downloads remain
+      ansible.builtin.find:
+        paths: "{{ deploy_dir }}/models/hf_cache/hub"
+        patterns: "*.incomplete"
+        recurse: true
+      register: incomplete_files
+      failed_when: incomplete_files.files | length > 0
+      changed_when: false
+
+    # ── 5. Start stack ────────────────────────────────────────────────────────
+    - name: Start Triton stack
+      ansible.builtin.command:
+        cmd: docker compose -f {{ deploy_dir }}/docker/docker-compose.yml up -d --remove-orphans triton
+      register: compose_up
+      changed_when: >
+        'Started' in compose_up.stdout or
+        'Created' in compose_up.stdout or
+        'Recreated' in compose_up.stdout
+      when: models | length > 0
+
+    - name: Show compose output
+      ansible.builtin.debug:
+        var: compose_up.stdout_lines
+      when: models | length > 0 and (compose_up.changed | default(false))
+
+    - name: Skip Triton start (no models configured)
+      ansible.builtin.debug:
+        msg: "No models in vars.yaml — skipping Triton start and health check."
+      when: models | length == 0
+
+    # ── 6. Health check ───────────────────────────────────────────────────────
+    # Model weights are already cached, so startup is only limited by model loading time.
+    # start_period gives vLLM time to initialise before retries begin.
+    - name: Wait for Triton to be ready
+      ansible.builtin.command:
+        cmd: curl -sf http://localhost:8000/v2/health/ready
+      register: triton_health
+      until: triton_health.rc == 0
+      retries: 40
+      delay: 30
+      changed_when: false
+      failed_when: triton_health.rc != 0
+      when: models | length > 0
+
+    - name: Query deployed models
+      ansible.builtin.uri:
+        url: "http://localhost:{{ openai_port | default(9000) }}/v1/models"
+        return_content: true
+      register: triton_models
+      when: models | length > 0
+
+    - name: Triton is ready
+      ansible.builtin.debug:
+        msg:
+          - "Triton is up at http://{{ ansible_host }}:{{ openai_port | default(9000) }}"
+          - "Deployed models: {{ triton_models.json.data | map(attribute='id') | list }}"
+      when: models | length > 0
