@@ -77,9 +77,6 @@ services:
     volumes:
       - {{ deploy_dir }}/models/hf_cache:/root/.cache/huggingface
 
-    ports:
-      - "{{ model.internal_port }}:8000"
-
     command:
       - "--model"
       - "{{ model.hf_name }}"

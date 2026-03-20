@@ -128,7 +128,6 @@ models:
   - name: "qwen35-35b-fp8"            # Docker service name (no dots)
     hf_name: "Qwen/Qwen3.5-35B-A3B-FP8"
     gpu_ids: ["0", "1"]               # which GPUs this container gets
-    internal_port: 8001               # host-side debug port (container always uses 8000)
     vllmConfig:
       tensorParallelSize: 2
       gpuMemoryUtilization: 0.80
@@ -247,7 +246,6 @@ models:
   - name: "qwen35-122b-fp8"
     hf_name: "Qwen/Qwen3.5-122B-A10B-FP8"
     gpu_ids: ["0", "1"]
-    internal_port: 8001
     vllmConfig:
       tensorParallelSize: 2
       gpuMemoryUtilization: 0.90
@@ -257,12 +255,10 @@ models:
 models:
   - name: "qwen35-122b-fp8"
     gpu_ids: ["0", "1"]
-    internal_port: 8001
     # ...
 
   - name: "qwen35-35b-fp8"
     gpu_ids: ["0"]
-    internal_port: 8002
     # ...
 ```
 
@@ -300,8 +296,6 @@ curl http://gpu-server:4000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "qwen35-35b-fp8", "messages": [{"role": "user", "content": "Hello"}]}'
 
-# Direct vLLM access (debug, host port only)
-curl http://gpu-server:8001/health
 ```
 
 Soofi Trainer integration (in `soofi-trainer/.env`):
