@@ -29,7 +29,7 @@
     # ── 2. Config files ───────────────────────────────────────────────────────
     - name: Copy docker-compose.yml
       ansible.builtin.copy:
-        src: /repo/docker/docker-compose.yml
+        src: /repo/docker/docker-compose.triton.yml
         dest: "{{ deploy_dir }}/docker/docker-compose.yml"
         owner: mrk
         group: mrk
@@ -37,7 +37,7 @@
 
     - name: Copy litellm-config.yaml
       ansible.builtin.copy:
-        src: /repo/docker/litellm-config.yaml
+        src: /repo/docker/litellm-config.triton.yaml
         dest: "{{ deploy_dir }}/docker/litellm-config.yaml"
         owner: mrk
         group: mrk
@@ -195,7 +195,7 @@
     # ── 5. Start stack ────────────────────────────────────────────────────────
     - name: Start Triton stack
       ansible.builtin.command:
-        cmd: docker compose -f {{ deploy_dir }}/docker/docker-compose.yml up -d --force-recreate triton
+        cmd: docker compose -f {{ deploy_dir }}/docker/docker-compose.yml up -d --remove-orphans triton
       register: compose_up
       changed_when: >
         'Started' in compose_up.stdout or

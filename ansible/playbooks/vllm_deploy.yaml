@@ -91,7 +91,7 @@
     # ── 4. Start stack ────────────────────────────────────────────────────────
     - name: Start vLLM stack
       ansible.builtin.command:
-        cmd: docker compose -f {{ deploy_dir }}/docker/docker-compose.yml up -d --force-recreate --remove-orphans
+        cmd: docker compose -f {{ deploy_dir }}/docker/docker-compose.yml up -d --remove-orphans
       register: compose_up
       changed_when: >
         'Started' in compose_up.stdout or
