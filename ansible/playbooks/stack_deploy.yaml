@@ -40,6 +40,7 @@
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: "0644"
+      register: litellm_config
 
     # ── 3. Model pre-download ─────────────────────────────────────────────────
     # Downloads model weights before vLLM starts so the health check is not
@@ -167,7 +168,42 @@
         recurse: true
       when: model_caches.results | selectattr('matched', 'equalto', 0) | list | length > 0
 
-    # ── 6. Start stack ───────────────────────────────────────────────────────
+    # ── 6. Reset Open WebUI when auth setting changes ─────────────────────────
+    # Old user/session data in the volume blocks access when auth is toggled.
+    # A marker file tracks the last deployed auth state to avoid unnecessary resets.
+    - name: Read previous auth state
+      ansible.builtin.slurp:
+        src: "{{ deploy_dir }}/docker/.webui_auth_state"
+      register: prev_auth_state
+      failed_when: false
+
+    - name: Reset Open WebUI volume (auth setting changed)
+      when: >
+        (prev_auth_state.content is defined and
+         (prev_auth_state.content | b64decode | trim) != (webui_auth | default('true')))
+        or
+        (prev_auth_state.content is not defined and
+         (webui_auth | default('true')) == 'false')
+      block:
+        - name: Stop Open WebUI container
+          ansible.builtin.command:
+            cmd: docker rm -f open-webui
+          changed_when: true
+          failed_when: false
+
+        - name: Delete Open WebUI data volume
+          ansible.builtin.command:
+            cmd: docker volume rm open_webui_data
+          changed_when: true
+          failed_when: false
+
+    - name: Save current auth state
+      ansible.builtin.copy:
+        content: "{{ webui_auth | default('true') }}"
+        dest: "{{ deploy_dir }}/docker/.webui_auth_state"
+        mode: "0644"
+
+    # ── 7. Start stack ───────────────────────────────────────────────────────
     - name: Start inference stack
       ansible.builtin.command:
         cmd: docker compose -f {{ deploy_dir }}/docker/docker-compose.yml up -d --remove-orphans
@@ -183,12 +219,18 @@
         var: compose_up.stderr_lines
       when: models | length > 0 and (compose_up.changed | default(false))
 
+    - name: Restart LiteLLM (config file changed)
+      ansible.builtin.command:
+        cmd: docker compose -f {{ deploy_dir }}/docker/docker-compose.yml restart litellm
+      when: litellm_config.changed | default(false) and not (compose_up.changed | default(false))
+      changed_when: true
+
     - name: Skip stack start (no models configured)
       ansible.builtin.debug:
         msg: "No models in vars.yaml — skipping stack start."
       when: models | length == 0
 
-    # ── 7. Health check ──────────────────────────────────────────────────────
+    # ── 8. Health check ──────────────────────────────────────────────────────
     - name: Wait for LiteLLM to be ready
       ansible.builtin.uri:
         url: "http://localhost:{{ litellm_port | default(4000) }}/health/liveliness"
@@ -206,7 +248,7 @@
       register: litellm_models
       when: models | length > 0
 
-    # ── 8. Warm up STT (load Whisper into GPU memory) ────────────────────────
+    # ── 9. Warm up STT (load Whisper into GPU memory) ────────────────────────
     - name: Warm up STT
       ansible.builtin.uri:
         url: "http://localhost:{{ stt_service.internal_port }}/v1/models"

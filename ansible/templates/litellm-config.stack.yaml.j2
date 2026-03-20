@@ -30,6 +30,7 @@ model_list:
 litellm_settings:
   drop_params: true
   set_verbose: false
-
+  callbacks:
+    - prometheus
 router_settings:
   timeout: 120
