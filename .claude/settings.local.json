@@ -19,7 +19,8 @@
       "WebFetch(domain:rhasspy.github.io)",
       "Bash(curl:*)",
       "WebFetch(domain:ghcr.io)",
-      "Bash(docker run:*)"
+      "Bash(docker run:*)",
+      "Bash(grep -v \"\\\\.j2$\")"
     ]
   }
 }

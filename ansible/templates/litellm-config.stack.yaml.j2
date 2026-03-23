@@ -27,6 +27,14 @@ model_list:
       api_key: "dummy"
 
 {% endif %}
+general_settings:
+  pass_through_endpoints:
+{% for model in models %}
+    - path: "/vllm-metrics/{{ model.name }}"
+      target: "http://vllm-{{ model.name }}:8000/metrics"
+      headers: {}
+{% endfor %}
+
 litellm_settings:
   drop_params: true
   set_verbose: false
