@@ -12,6 +12,10 @@
   gather_facts: false
 
   tasks:
+    - name: Select enabled models
+      ansible.builtin.set_fact:
+        active_models: "{{ models | selectattr('enabled', 'equalto', true) | list }}"
+
     # ── 1. Directories ────────────────────────────────────────────────────────
     - name: Create deployment directories
       ansible.builtin.file:
@@ -51,7 +55,7 @@
       ansible.builtin.stat:
         path: "{{ deploy_dir }}/models/hf_cache/hub/models--{{ item.hf_name | replace('/', '--') }}"
       register: model_caches
-      loop: "{{ models }}"
+      loop: "{{ active_models }}"
       loop_control:
         label: "{{ item.hf_name }}"
 
@@ -70,7 +74,7 @@
           -e HF_TOKEN={{ hf_token }}
           -e HUGGING_FACE_HUB_TOKEN={{ hf_token }}
           {% endif %}
-          {{ item.item.repository | default(vllm_repository) }}:{{ item.item.tag | default(vllm_tag) }}
+          {{ item.item.repository | default(vllm_defaults.repository) }}:{{ item.item.tag | default(vllm_defaults.tag) }}
           download {{ item.item.hf_name }}
       when: not item.stat.exists
       loop: "{{ model_caches.results }}"
@@ -133,12 +137,12 @@
         'Started' in compose_up.stdout or
         'Created' in compose_up.stdout or
         'Recreated' in compose_up.stdout
-      when: models | length > 0
+      when: active_models | length > 0
 
     - name: Show compose output
       ansible.builtin.debug:
         var: compose_up.stdout_lines
-      when: models | length > 0 and (compose_up.changed | default(false))
+      when: active_models | length > 0 and (compose_up.changed | default(false))
 
     - name: Restart LiteLLM (config file changed)
       ansible.builtin.command:
@@ -148,8 +152,8 @@
 
     - name: Skip stack start (no models configured)
       ansible.builtin.debug:
-        msg: "No models in vars.yaml — skipping stack start."
-      when: models | length == 0
+        msg: "No enabled models in vars.yaml — skipping stack start."
+      when: active_models | length == 0
 
     # ── 6. Health check ───────────────────────────────────────────────────────
     # Weights are pre-cached, so startup time is only model loading.
@@ -161,7 +165,7 @@
       until: litellm_health.status == 200
       retries: 40
       delay: 30
-      when: models | length > 0
+      when: active_models | length > 0
 
     - name: Query deployed models via LiteLLM
       ansible.builtin.uri:
@@ -170,7 +174,7 @@
           Authorization: "Bearer {{ litellm_master_key }}"
         return_content: true
       register: litellm_models
-      when: models | length > 0
+      when: active_models | length > 0
 
     - name: Stack is ready
       ansible.builtin.debug:
@@ -178,4 +182,4 @@
           - "LiteLLM API: http://{{ ansible_host }}:{{ litellm_port | default(4000) }}/v1"
           - "Open WebUI:  http://{{ ansible_host }}:{{ webui_port | default(3000) }}"
           - "Deployed models: {{ litellm_models.json.data | map(attribute='id') | list }}"
-      when: models | length > 0
+      when: active_models | length > 0
