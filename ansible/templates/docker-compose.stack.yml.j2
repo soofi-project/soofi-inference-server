@@ -52,12 +52,14 @@
 {% endmacro %}
 
 services:
-{% for model in models %}
+{% for model in active_models %}
+{% set cfg = vllm_defaults.config | combine(model.vllm | default({}), recursive=True) %}
+{% set parser = parser_profiles.get(model.parser_profile, {}) if model.parser_profile is defined else {} %}
   # ===========================================================================
   # vLLM: {{ model.name }}  ({{ model.hf_name }})
   # ===========================================================================
   vllm-{{ model.name }}:
-    image: {{ model.repository | default(vllm_repository) }}:{{ model.tag | default(vllm_tag) }}
+    image: {{ model.repository | default(vllm_defaults.repository) }}:{{ model.tag | default(vllm_defaults.tag) }}
     container_name: vllm-{{ model.name }}
     restart: unless-stopped
 
@@ -80,21 +82,85 @@ services:
     command:
       - "--model"
       - "{{ model.hf_name }}"
+      - "--served-model-name"
+      - "{{ model.name }}"
       - "--tensor-parallel-size"
-      - "{{ model.vllmConfig.tensorParallelSize | default(1) }}"
+      - "{{ cfg.tensor_parallel_size }}"
       - "--gpu-memory-utilization"
-      - "{{ model.vllmConfig.gpuMemoryUtilization | default(0.92) }}"
+      - "{{ cfg.gpu_memory_utilization }}"
       - "--max-model-len"
-      - "{{ model.vllmConfig.maxModelLen | default(32768) }}"
+      - "{{ cfg.max_model_len }}"
       - "--dtype"
-      - "{{ model.vllmConfig.dtype | default('auto') }}"
-{% if model.vllmConfig.enablePrefixCaching | default(false) %}
+      - "{{ cfg.dtype }}"
+{% if cfg.enable_prefix_caching | default(false) %}
       - "--enable-prefix-caching"
 {% endif %}
-{% if model.vllmConfig.enableChunkedPrefill | default(false) %}
+{% if cfg.enable_chunked_prefill | default(false) %}
       - "--enable-chunked-prefill"
 {% endif %}
-{% for arg in model.vllmConfig.extraArgs | default([]) %}
+{% if parser.enable_auto_tool_choice | default(false) %}
+      - "--enable-auto-tool-choice"
+{% endif %}
+{% if parser.tool_call_parser is defined %}
+      - "--tool-call-parser"
+      - {{ parser.tool_call_parser | tojson }}
+{% endif %}
+{% if parser.reasoning_parser is defined %}
+      - "--reasoning-parser"
+      - {{ parser.reasoning_parser | tojson }}
+{% endif %}
+{% if cfg.max_num_seqs is defined %}
+      - "--max-num-seqs"
+      - "{{ cfg.max_num_seqs }}"
+{% endif %}
+{% if cfg.max_num_batched_tokens is defined %}
+      - "--max-num-batched-tokens"
+      - "{{ cfg.max_num_batched_tokens }}"
+{% endif %}
+{% if cfg.swap_space is defined %}
+      - "--swap-space"
+      - "{{ cfg.swap_space }}"
+{% endif %}
+{% if cfg.kv_cache_dtype is defined %}
+      - "--kv-cache-dtype"
+      - "{{ cfg.kv_cache_dtype }}"
+{% endif %}
+{% if cfg.pipeline_parallel_size is defined %}
+      - "--pipeline-parallel-size"
+      - "{{ cfg.pipeline_parallel_size }}"
+{% endif %}
+{% if cfg.data_parallel_size is defined %}
+      - "--data-parallel-size"
+      - "{{ cfg.data_parallel_size }}"
+{% endif %}
+{% if cfg.attention_backend is defined %}
+      - "--attention-backend"
+      - {{ cfg.attention_backend | tojson }}
+{% endif %}
+{% if cfg.mamba_ssm_cache_dtype is defined %}
+      - "--mamba-ssm-cache-dtype"
+      - {{ cfg.mamba_ssm_cache_dtype | tojson }}
+{% endif %}
+{% if cfg.max_cudagraph_capture_size is defined %}
+      - "--max-cudagraph-capture-size"
+      - "{{ cfg.max_cudagraph_capture_size }}"
+{% endif %}
+{% if cfg.language_model_only | default(false) %}
+      - "--language-model-only"
+{% endif %}
+{% if cfg.calculate_kv_scales | default(false) %}
+      - "--calculate-kv-scales"
+{% endif %}
+{% if cfg.trust_remote_code | default(false) %}
+      - "--trust-remote-code"
+{% endif %}
+{% if cfg.async_scheduling | default(false) %}
+      - "--async-scheduling"
+{% endif %}
+{% if cfg.enable_expert_parallel | default(false) %}
+      - "--enable-expert-parallel"
+{% endif %}
+{% for arg in model.extra_args | default([]) %}
       - {{ arg | tojson }}
 {% endfor %}
 
@@ -143,7 +209,7 @@ services:
     command: ["--config", "/app/config.yaml", "--port", "4000"]
 
     depends_on:
-{% for model in models %}
+{% for model in active_models %}
       vllm-{{ model.name }}:
         condition: service_healthy
 {% endfor %}

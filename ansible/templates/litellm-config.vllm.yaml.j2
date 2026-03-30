@@ -6,7 +6,7 @@
 #   http://vllm-<name>:8000/v1
 
 model_list:
-{% for model in models %}
+{% for model in active_models %}
   - model_name: {{ model.name }}
     litellm_params:
       model: openai/{{ model.name }}
