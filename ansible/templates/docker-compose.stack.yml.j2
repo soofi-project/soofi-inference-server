@@ -140,6 +140,11 @@ services:
     volumes:
       - {{ deploy_dir }}/docker/litellm-config.yaml:/app/config.yaml
 
+    # Force container recreation when model list changes — Compose does not
+    # detect changes to volume-mounted config files, only to the service definition.
+    environment:
+      - LITELLM_MODELS={{ models | map(attribute='name') | list | join(',') }}
+
     command: ["--config", "/app/config.yaml", "--port", "4000"]
 
     depends_on:
