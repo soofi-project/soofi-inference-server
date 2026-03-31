@@ -74,11 +74,16 @@
     # ── 4. GPU Runtime Settings ─────────────────────────────────────────────
     # Persistence mode reduces GPU init latency; GSP performance mode
     # offloads memory management to the GPU's onboard processor.
+    - name: Check GPU persistence mode status
+      ansible.builtin.command:
+        cmd: nvidia-smi --query-gpu=persistence_mode --format=csv,noheader
+      register: persistence_status
+      changed_when: false
+
     - name: Enable GPU persistence mode
       ansible.builtin.command:
         cmd: nvidia-smi -pm 1
-      register: persistence_mode
-      changed_when: "'Enabled' in persistence_mode.stdout"
+      when: "'Disabled' in persistence_status.stdout"
 
     - name: Set GSP firmware to performance mode
       ansible.builtin.command:

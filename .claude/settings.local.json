@@ -20,17 +20,7 @@
       "Bash(curl:*)",
       "WebFetch(domain:ghcr.io)",
       "Bash(docker run:*)",
-      "Bash(ls:*)",
-      "Bash(find:*)",
-      "Bash(git checkout:*)",
-      "WebFetch(domain:huggingface.github.io)",
-      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(i[''''path'''']\\) for i in d.get\\(''''items'''',[]\\)]\")",
-      "WebFetch(domain:discuss.vllm.ai)",
-      "WebFetch(domain:gofastmcp.com)",
-      "Bash(gh api:*)",
-      "Bash(gh search:*)",
-      "Bash(python3 -c \"import json,sys; items=json.load\\(sys.stdin\\); [print\\(f''''{i[url]}: {i[title]}''''\\) for i in items]\")",
-      "Bash(gh issue:*)"
+      "Bash(grep -v \"\\\\.j2$\")"
     ]
   }
 }

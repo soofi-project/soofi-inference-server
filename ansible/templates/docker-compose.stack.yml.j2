@@ -84,9 +84,6 @@ services:
       - {{ vol }}
 {% endfor %}
 
-    ports:
-      - "{{ model.internal_port }}:8000"
-
     command:
       - "--model"
       - "{{ model.hf_name }}"
@@ -149,6 +146,11 @@ services:
     volumes:
       - {{ deploy_dir }}/docker/litellm-config.yaml:/app/config.yaml
 
+    # Force container recreation when model list changes — Compose does not
+    # detect changes to volume-mounted config files, only to the service definition.
+    environment:
+      - LITELLM_MODELS={{ models | map(attribute='name') | list | join(',') }}
+
     command: ["--config", "/app/config.yaml", "--port", "4000"]
 
     depends_on:
@@ -195,6 +197,9 @@ services:
       - WEBUI_AUTH={{ webui_auth | default('true') }}
       - WEBUI_NAME={{ webui_name | default('AI Inference Server') }}
       - ENABLE_OLLAMA_API=false
+      - OFFLINE_MODE=true
+      - RAG_EMBEDDING_MODEL_AUTO_UPDATE=false
+      - RAG_RERANKING_MODEL_AUTO_UPDATE=false
 
     depends_on:
       litellm:

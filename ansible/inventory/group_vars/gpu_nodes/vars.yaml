@@ -21,14 +21,13 @@ models:
   # - name: "qwen35-35b-fp8"
   #   hf_name: "Qwen/Qwen3.5-35B-A3B-FP8"
   #   gpu_ids: ["0"]
-  #   internal_port: 8001
   #   vllmConfig:
   #     tensorParallelSize: 1
-  #     gpuMemoryUtilization: 0.95
-  #     maxModelLen: 65536
+  #     gpuMemoryUtilization: 0.92
+  #     maxModelLen: 32768
   #     dtype: "auto"
   #     enablePrefixCaching: true
-  #     enableChunkedPrefill: true
+  #     enableChunkedPrefill: false
   #     extraArgs:
   #       - "--served-model-name"
   #       - "qwen35-35b-fp8"
@@ -40,14 +39,11 @@ models:
   #       - "--swap-space"
   #       - "16"
   #       - "--max-num-seqs"
-  #       - "32"
-  #       - "--speculative-config"
-  #       - '{"method": "mtp", "num_speculative_tokens": 1}'
+  #       - "8"
 
   - name: "qwen3-embedding-8b"
     hf_name: "Qwen/Qwen3-Embedding-8B"
     gpu_ids: ["1"]
-    internal_port: 8002
     vllmConfig:
       tensorParallelSize: 1
       gpuMemoryUtilization: 0.50
@@ -64,7 +60,7 @@ models:
   # - name: "qwen3-vl-embedding-8b"
   #   hf_name: "Qwen/Qwen3-VL-Embedding-8B"
   #   gpu_ids: ["1"]
-  #   internal_port: 8002
+
   #   vllmConfig:
   #     tensorParallelSize: 1
   #     gpuMemoryUtilization: 0.50
@@ -80,7 +76,6 @@ models:
     hf_name: "Qwen/Qwen3.5-122B-A10B-FP8"
     #gpu_ids: ["0", "1"]
     gpu_ids: ["0"]
-    internal_port: 8001
     vllmConfig:
     #  tensorParallelSize: 2
       gpuMemoryUtilization: 0.93
@@ -106,7 +101,7 @@ models:
   # - name: "qwen3-coder-next-fp8"
   #   hf_name: "Qwen/Qwen3-Coder-Next-FP8"
   #   gpu_ids: ["0", "1"]
-  #   internal_port: 8002
+
   #   vllmConfig:
   #     tensorParallelSize: 2
   #     gpuMemoryUtilization: 0.90
@@ -126,7 +121,7 @@ models:
   # - name: "nemotron-nano-30b"
   #   hf_name: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8"
   #   gpu_ids: ["1"]
-  #   internal_port: 8004
+
   #   vllmConfig:
   #     tensorParallelSize: 1
   #     gpuMemoryUtilization: 0.50
@@ -213,7 +208,7 @@ litellm_port: 4000
 webui_port: 3000
 
 # Open WebUI
-webui_auth: "true"
+webui_auth: "false"
 webui_name: "AI Inference Server"
 
 # triton (deprecated — kept for reference)

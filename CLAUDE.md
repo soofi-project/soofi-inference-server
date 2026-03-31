@@ -193,3 +193,4 @@ kubectl apply -f kubernetes/
 - GPU Memory Utilization von 0.90 lässt Spielraum für KV-Cache bei langen Kontexten
 - Triton vLLM Backend benötigt `config.pbtxt` UND `1/model.json` pro Model
 - Download-Script: `./scripts/download-model.sh` (interaktive Modell-Auswahl, GPU auto-detected via `detect-gpu.sh`, override via `TENSOR_PARALLEL_SIZE`, `PIPELINE_PARALLEL_SIZE`)
+- **Gemountete Config-Dateien**: `docker compose up -d` erkennt Änderungen an per Volume gemounteten Dateien (z.B. `litellm-config.yaml`) **nicht** — nur Änderungen an der Service-Definition im Compose-File selbst. Wenn sich eine gemountete Config ändert, muss der betroffene Container explizit restartet werden (z.B. `docker compose restart litellm`). In den Ansible-Playbooks ist das über `register` + bedingten Restart gelöst.
