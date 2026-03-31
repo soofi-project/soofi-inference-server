@@ -18,28 +18,28 @@ vllm_tag: "v0.17.1"
 # repository/tag are optional — fall back to vllm_repository/vllm_tag above.
 models:
 
-  - name: "qwen35-35b-fp8"
-    hf_name: "Qwen/Qwen3.5-35B-A3B-FP8"
-    gpu_ids: ["0"]
-    vllmConfig:
-      tensorParallelSize: 1
-      gpuMemoryUtilization: 0.92
-      maxModelLen: 32768
-      dtype: "auto"
-      enablePrefixCaching: true
-      enableChunkedPrefill: false
-      extraArgs:
-        - "--served-model-name"
-        - "qwen35-35b-fp8"
-        - "--enable-auto-tool-choice"
-        - "--tool-call-parser"
-        - "qwen3_coder"
-        - "--reasoning-parser"
-        - "qwen3"
-        - "--swap-space"
-        - "16"
-        - "--max-num-seqs"
-        - "8"
+  # - name: "qwen35-35b-fp8"
+  #   hf_name: "Qwen/Qwen3.5-35B-A3B-FP8"
+  #   gpu_ids: ["0"]
+  #   vllmConfig:
+  #     tensorParallelSize: 1
+  #     gpuMemoryUtilization: 0.92
+  #     maxModelLen: 32768
+  #     dtype: "auto"
+  #     enablePrefixCaching: true
+  #     enableChunkedPrefill: false
+  #     extraArgs:
+  #       - "--served-model-name"
+  #       - "qwen35-35b-fp8"
+  #       - "--enable-auto-tool-choice"
+  #       - "--tool-call-parser"
+  #       - "qwen3_coder"
+  #       - "--reasoning-parser"
+  #       - "qwen3"
+  #       - "--swap-space"
+  #       - "16"
+  #       - "--max-num-seqs"
+  #       - "8"
 
   - name: "qwen3-embedding-8b"
     hf_name: "Qwen/Qwen3-Embedding-8B"
@@ -72,30 +72,30 @@ models:
   #       - "--served-model-name"
   #       - "qwen3-vl-embedding-8b"
 
-  # 122B — beide GPUs, TP=2
-  # - name: "qwen35-122b-fp8"
-  #   hf_name: "Qwen/Qwen3.5-122B-A10B-FP8"
-  #   gpu_ids: ["0", "1"]
-
-  #   vllmConfig:
-  #     tensorParallelSize: 2
-  #     gpuMemoryUtilization: 0.90
-  #     maxModelLen: 32768
-  #     dtype: "auto"
-  #     enablePrefixCaching: true
-  #     enableChunkedPrefill: false
-  #     extraArgs:
-  #       - "--served-model-name"
-  #       - "qwen35-122b-fp8"
-  #       - "--enable-auto-tool-choice"
-  #       - "--tool-call-parser"
-  #       - "qwen3_coder"
-  #       - "--reasoning-parser"
-  #       - "qwen3"
-  #       - "--swap-space"
-  #       - "16"
-  #       - "--max-num-seqs"
-  #       - "8"
+  - name: "qwen35-122b-fp8"
+    hf_name: "Qwen/Qwen3.5-122B-A10B-FP8"
+    #gpu_ids: ["0", "1"]
+    gpu_ids: ["0"]
+    vllmConfig:
+    #  tensorParallelSize: 2
+      gpuMemoryUtilization: 0.93
+      #maxModelLen: 32768
+      maxModelLen: 16384
+      dtype: "auto"
+      enablePrefixCaching: true
+      enableChunkedPrefill: false
+      extraArgs:
+        - "--served-model-name"
+        - "qwen35-122b-fp8"
+        - "--enable-auto-tool-choice"
+        - "--tool-call-parser"
+        - "qwen3_coder"
+        - "--reasoning-parser"
+        - "qwen3"
+        - "--swap-space"
+        - "16"
+        - "--max-num-seqs"
+        - "4"
 
   # Coding (enable when weights are available)
   # - name: "qwen3-coder-next-fp8"
@@ -133,40 +133,60 @@ models:
   #       - "--served-model-name"
   #       - "nemotron-nano-30b"
 
-# Auxiliary services — STT, TTS, etc.
-# Each entry gets its own container in the same Docker network as LiteLLM.
-# LiteLLM routes requests to them via litellm_name.
-aux_services: []
-# To add a service, replace [] with a list:
-#
-  # STT — Speech to Text
-  # - name: "faster-whisper"
-  #   image: "linuxserver/faster-whisper:latest"
-  #   internal_port: 8010       # host-side debug port
-  #   container_port: 8080
-  #   litellm_name: "whisper-1"
-  #   litellm_model: "openai/whisper-1"
-  #   healthcheck_path: "/health"
-  #   environment:
-  #     - "WHISPER__MODEL=large-v3"
-  #     - "PUID=1000"
-  #     - "PGID=1000"
+# ── STT Service (speaches / faster-whisper) ──────────────────────────────────
+stt_service:
+  container_name: "faster-whisper"
+  image: "ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cuda-12.6.3"
+  internal_port: 8010
+  container_port: 8000
+  litellm_name: "whisper-1"
+  litellm_model: "openai/whisper-1"
+  healthcheck_path: "/health"
+  gpu_devices: ["1"]
+  volumes:
+    - "{{ deploy_dir }}/models/hf_cache:/home/ubuntu/.cache/huggingface"
+  environment:
+    - "PRELOAD_MODELS=[\"Systran/faster-whisper-large-v3\"]"
+    - "WHISPER__INFERENCE_DEVICE=cuda"
+    - "WHISPER__COMPUTE_TYPE=float16"
+    - "STT_MODEL_TTL=-1"
 
-  # TTS — Text to Speech
-  # - name: "kokoro-tts"
-  #   image: "ghcr.io/remsky/kokoro-fastapi-cpu:latest"
-  #   internal_port: 8011
-  #   container_port: 8880
-  #   litellm_name: "tts-1"
-  #   litellm_model: "openai/tts-1"
-  #   healthcheck_path: "/health"
+# ── TTS Service (openedai-speech / Piper) ────────────────────────────────────
+tts_service:
+  container_name: "openedai-speech"
+  image: "ghcr.io/matatonic/openedai-speech:0.18.2"
+  internal_port: 8011
+  container_port: 8000
+  litellm_name: "tts-1"
+  litellm_model: "openai/tts-1"
+  healthcheck_path: "/health"
+  volumes:
+    - "{{ deploy_dir }}/models/piper:/app/voices"
+    - "{{ deploy_dir }}/models/piper/voice_to_speaker.yaml:/app/config/voice_to_speaker.yaml"
+  environment:
+    - "TTS_HOME=voices"
+  voices:
+    # Piper ONNX models — HuggingFace base: rhasspy/piper-voices v1.0.0
+    # Format: voice name → filename + HF path (de/de_DE/thorsten/high/...)
+    - filename: "de_DE-thorsten-high"
+      path: "de/de_DE/thorsten/high"
+    - filename: "de_DE-thorsten_emotional-medium"
+      path: "de/de_DE/thorsten_emotional/medium"
+    - filename: "de_DE-kerstin-low"
+      path: "de/de_DE/kerstin/low"
+    - filename: "en_US-lessac-high"
+      path: "en/en_US/lessac/high"
+
+# Image versions
+litellm_image: "ghcr.io/berriai/litellm:main-v1.82.3-stable"
+webui_image: "ghcr.io/open-webui/open-webui:v0.8.10"
 
 # Ports
 litellm_port: 4000
 webui_port: 3000
 
 # Open WebUI
-webui_auth: "true"
+webui_auth: "false"
 webui_name: "AI Inference Server"
 
 # triton (deprecated — kept for reference)

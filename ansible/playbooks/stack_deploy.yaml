@@ -16,8 +16,8 @@
       ansible.builtin.file:
         path: "{{ item }}"
         state: directory
-        owner: mrk
-        group: mrk
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
         mode: "0755"
       loop:
         - "{{ deploy_dir }}"
@@ -29,17 +29,18 @@
       ansible.builtin.template:
         src: ../templates/docker-compose.stack.yml.j2
         dest: "{{ deploy_dir }}/docker/docker-compose.yml"
-        owner: mrk
-        group: mrk
-        mode: "0644"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0600"
 
     - name: Deploy litellm-config.yaml from template
       ansible.builtin.template:
         src: ../templates/litellm-config.stack.yaml.j2
         dest: "{{ deploy_dir }}/docker/litellm-config.yaml"
-        owner: mrk
-        group: mrk
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
         mode: "0644"
+      register: litellm_config
 
     # ── 3. Model pre-download ─────────────────────────────────────────────────
     # Downloads model weights before vLLM starts so the health check is not
@@ -115,28 +116,121 @@
         label: "{{ item.path | basename }}"
       when: incomplete_files.files | length > 0
 
-    # ── 4. Start stack ────────────────────────────────────────────────────────
+    # ── 4. TTS assets (Piper voice models) ───────────────────────────────────
+    - name: Create Piper voice model directory
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}/models/piper"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+      when: tts_service is defined
+
+    - name: Check if Piper voice model files exist
+      ansible.builtin.stat:
+        path: "{{ deploy_dir }}/models/piper/{{ item.0.filename }}{{ item.1 }}"
+      register: piper_file_stats
+      loop: "{{ tts_service.voices | product(['.onnx', '.onnx.json']) | list }}"
+      loop_control:
+        label: "{{ item.0.filename }}{{ item.1 }}"
+      when: tts_service is defined and tts_service.voices is defined
+
+    - name: Download Piper voice models
+      ansible.builtin.get_url:
+        url: "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/{{ item.item.0.path }}/{{ item.item.0.filename }}{{ item.item.1 }}"
+        dest: "{{ deploy_dir }}/models/piper/{{ item.item.0.filename }}{{ item.item.1 }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+      loop: "{{ piper_file_stats.results }}"
+      loop_control:
+        label: "{{ item.item.0.filename }}{{ item.item.1 }}"
+      when:
+        - tts_service is defined
+        - not (item.stat.exists | default(false))
+
+    - name: Deploy openedai-speech voice configuration
+      ansible.builtin.template:
+        src: ../templates/openedai-speech-voices.yaml.j2
+        dest: "{{ deploy_dir }}/models/piper/voice_to_speaker.yaml"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+      when: tts_service is defined
+
+    # ── 5. HF cache permissions ──────────────────────────────────────────────
+    # vLLM runs as root, speaches as uid 1000 (ubuntu). Both need write access
+    # to the shared HF cache. Use mode 0777 so both users can read/write.
+    - name: Ensure HF cache is writable by all containers
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}/models/hf_cache"
+        mode: "a+rwX"
+        recurse: true
+      when: model_caches.results | selectattr('matched', 'equalto', 0) | list | length > 0
+
+    # ── 6. Reset Open WebUI when auth setting changes ─────────────────────────
+    # Old user/session data in the volume blocks access when auth is toggled.
+    # A marker file tracks the last deployed auth state to avoid unnecessary resets.
+    - name: Read previous auth state
+      ansible.builtin.slurp:
+        src: "{{ deploy_dir }}/docker/.webui_auth_state"
+      register: prev_auth_state
+      failed_when: false
+
+    - name: Reset Open WebUI volume (auth setting changed)
+      when: >
+        (prev_auth_state.content is defined and
+         (prev_auth_state.content | b64decode | trim) != (webui_auth | default('true')))
+        or
+        (prev_auth_state.content is not defined and
+         (webui_auth | default('true')) == 'false')
+      block:
+        - name: Stop Open WebUI container
+          ansible.builtin.command:
+            cmd: docker rm -f open-webui
+          changed_when: true
+          failed_when: false
+
+        - name: Delete Open WebUI data volume
+          ansible.builtin.command:
+            cmd: docker volume rm open_webui_data
+          changed_when: true
+          failed_when: false
+
+    - name: Save current auth state
+      ansible.builtin.copy:
+        content: "{{ webui_auth | default('true') }}"
+        dest: "{{ deploy_dir }}/docker/.webui_auth_state"
+        mode: "0644"
+
+    # ── 7. Start stack ───────────────────────────────────────────────────────
     - name: Start inference stack
       ansible.builtin.command:
         cmd: docker compose -f {{ deploy_dir }}/docker/docker-compose.yml up -d --remove-orphans
       register: compose_up
       changed_when: >
-        'Started' in compose_up.stdout or
-        'Created' in compose_up.stdout or
-        'Recreated' in compose_up.stdout
+        'Started' in (compose_up.stderr | default('')) or
+        'Created' in (compose_up.stderr | default('')) or
+        'Recreated' in (compose_up.stderr | default(''))
       when: models | length > 0
 
     - name: Show compose output
       ansible.builtin.debug:
-        var: compose_up.stdout_lines
+        var: compose_up.stderr_lines
       when: models | length > 0 and (compose_up.changed | default(false))
+
+    - name: Restart LiteLLM (config file changed)
+      ansible.builtin.command:
+        cmd: docker compose -f {{ deploy_dir }}/docker/docker-compose.yml restart litellm
+      when: litellm_config.changed | default(false) and not (compose_up.changed | default(false))
+      changed_when: true
 
     - name: Skip stack start (no models configured)
       ansible.builtin.debug:
         msg: "No models in vars.yaml — skipping stack start."
       when: models | length == 0
 
-    # ── 5. Health check ───────────────────────────────────────────────────────
+    # ── 8. Health check ──────────────────────────────────────────────────────
     - name: Wait for LiteLLM to be ready
       ansible.builtin.uri:
         url: "http://localhost:{{ litellm_port | default(4000) }}/health/liveliness"
@@ -153,6 +247,18 @@
         return_content: true
       register: litellm_models
       when: models | length > 0
+
+    # ── 9. Warm up STT (load Whisper into GPU memory) ────────────────────────
+    - name: Warm up STT
+      ansible.builtin.uri:
+        url: "http://localhost:{{ stt_service.internal_port }}/v1/models"
+        status_code: 200
+      register: whisper_warmup
+      until: whisper_warmup.status == 200
+      retries: 5
+      delay: 10
+      when: stt_service is defined
+      failed_when: false
 
     - name: Stack is ready
       ansible.builtin.debug:

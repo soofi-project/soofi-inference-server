@@ -75,7 +75,7 @@ services:
   # LiteLLM Proxy — OpenAI API Compatibility Layer
   # =============================================================================
   litellm:
-    image: ghcr.io/berriai/litellm:main-latest
+    image: ghcr.io/berriai/litellm:main-v1.82.3-stable
     container_name: litellm-proxy
     restart: unless-stopped
 
@@ -85,8 +85,6 @@ services:
     volumes:
       - ./litellm-config.yaml:/app/config.yaml
 
-    env_file:
-      - ${ENV_SECRETS_FILE}
 
     command: ["--config", "/app/config.yaml", "--port", "4000"]
 
