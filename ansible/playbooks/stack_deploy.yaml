@@ -126,28 +126,28 @@
         mode: "0755"
       when: tts_service is defined
 
-    - name: Check if Piper voice models exist
+    - name: Check if Piper voice model files exist
       ansible.builtin.stat:
-        path: "{{ deploy_dir }}/models/piper/{{ item.filename }}.onnx"
-      register: piper_voice_stats
-      loop: "{{ tts_service.voices }}"
+        path: "{{ deploy_dir }}/models/piper/{{ item.0.filename }}{{ item.1 }}"
+      register: piper_file_stats
+      loop: "{{ tts_service.voices | product(['.onnx', '.onnx.json']) | list }}"
       loop_control:
-        label: "{{ item.filename }}"
+        label: "{{ item.0.filename }}{{ item.1 }}"
       when: tts_service is defined and tts_service.voices is defined
 
     - name: Download Piper voice models
       ansible.builtin.get_url:
-        url: "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/{{ item.0.path }}/{{ item.0.filename }}{{ item.1 }}"
-        dest: "{{ deploy_dir }}/models/piper/{{ item.0.filename }}{{ item.1 }}"
+        url: "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/{{ item.item.0.path }}/{{ item.item.0.filename }}{{ item.item.1 }}"
+        dest: "{{ deploy_dir }}/models/piper/{{ item.item.0.filename }}{{ item.item.1 }}"
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: "0644"
-      loop: "{{ tts_service.voices | product(['.onnx', '.onnx.json']) | list }}"
+      loop: "{{ piper_file_stats.results }}"
       loop_control:
-        label: "{{ item.0.filename }}{{ item.1 }}"
+        label: "{{ item.item.0.filename }}{{ item.item.1 }}"
       when:
         - tts_service is defined
-        - item.0.filename not in (piper_voice_stats.results | selectattr('stat.exists') | map(attribute='item.filename') | list)
+        - not (item.stat.exists | default(false))
 
     - name: Deploy openedai-speech voice configuration
       ansible.builtin.template:
