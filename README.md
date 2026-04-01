@@ -115,13 +115,19 @@ chmod 600 ~/.ssh/id_ed25519
 
 ### Configuration
 
-All deployment settings live in two files under `ansible/inventory/group_vars/gpu_nodes/`:
+Day-to-day deployment inputs live in two files under `ansible/inventory/group_vars/gpu_nodes/`:
 
-**`vars.yaml`** — committed, no secrets. **This is the only file you need to change** to add, switch, or remove models:
+**`vars.yaml`** — committed, no secrets. For the `stack` and `vllm` backends, this is the file you edit to add, switch, or remove models and tune serving parameters. Shared serving defaults live under `vllm_defaults.config`, per-model overrides under `models[*].vllm`, parser-related flags under `parser_profiles`, and one-off vLLM CLI flags under `models[*].extra_args`:
 ```yaml
 vllm_defaults:
   repository: "vllm/vllm-openai"
   tag: "v0.17.1"
+  config:
+    gpu_memory_utilization: 0.92
+    max_model_len: 32768
+    dtype: "auto"
+    enable_prefix_caching: true
+    enable_chunked_prefill: true
 
 parser_profiles:
   qwen3:
@@ -137,11 +143,17 @@ models:
     gpu_ids: ["1"]
     parser_profile: "qwen3"
     vllm:
+      gpu_memory_utilization: 0.9
+      trust_remote_code: true
       max_num_seqs: 4
       kv_cache_dtype: "fp8"
+    extra_args:
+      - "--seed"
+      - "3407"
 ```
 
 Use `enabled: false` to keep a model in the catalog without deploying it.
+Use `vllm:` with snake_case keys. Older `vllmConfig` entries are legacy and are ignored by the current `stack`/`vllm` templates.
 
 **`vault.yaml`** — AES256-encrypted, never commit in plaintext:
 ```
@@ -217,7 +229,7 @@ The `hf_token` in the vault is a real HuggingFace API token:
 
 ### Changing the Model
 
-`vars.yaml` is the **single source of truth** — `docker-compose.yml` and `litellm-config.yaml` on the server are regenerated on every deploy. To add, switch, or remove a model: edit `vars.yaml`, run `./scripts/deploy.sh`.
+For the `stack` and `vllm` backends, `vars.yaml` drives the generated `docker-compose.yml` and `litellm-config.yaml` on the server, and those files are regenerated on every deploy. The supported serving-parameter schema comes from the active Ansible templates: shared defaults come from `vllm_defaults.config`, per-model overrides from `models[*].vllm`, parser flags from `parser_profiles`, and any non-templated vLLM flags should go in `extra_args`. To add, switch, or remove a model: edit `vars.yaml`, run `./scripts/deploy.sh`.
 
 ```yaml
 # Switch models by flipping enabled
