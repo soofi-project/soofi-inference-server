@@ -74,7 +74,7 @@ models:
       calculate_kv_scales: true
 
   - name: "NVIDIA-Nemotron-3-Super-120B-A12B-FP8"
-    enabled: true
+    enabled: false
     hf_name: "unsloth/NVIDIA-Nemotron-3-Super-120B-A12B-FP8"
     gpu_ids: ["0"]
     parser_profile: "nemotron_v3"
@@ -126,7 +126,7 @@ models:
 
 
   - name: "Nemotron-Cascade-2-30B-A3B"
-    enabled: false
+    enabled: true
     hf_name: "nvidia/Nemotron-Cascade-2-30B-A3B"
     gpu_ids: ["0"]
     parser_profile: "nemotron_v3"
