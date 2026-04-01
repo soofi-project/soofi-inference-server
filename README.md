@@ -34,6 +34,8 @@ Open WebUI is included for browser-based chat.
 
 ## Quickstart (local Docker Compose)
 
+This local Compose path is separate from the Ansible-managed `stack` deployment. Its serving flags live in `docker/docker-compose.yml`, not in `ansible/inventory/group_vars/gpu_nodes/vars.yaml`.
+
 ```bash
 # 1. Create secrets file once (outside the repo)
 echo "HF_TOKEN=hf_your_token_here" > ~/.env.secrets
@@ -65,18 +67,19 @@ soofi-inference-server/
 │   ├── ansible.cfg
 │   ├── requirements.yaml              # Galaxy collections (community.docker, community.general)
 │   ├── templates/
-│   │   ├── docker-compose.vllm.yml.j2 # Docker Compose template (generated from models list)
-│   │   └── litellm-config.vllm.yaml.j2# LiteLLM config template (generated from models list)
+│   │   ├── docker-compose.stack.yml.j2 # Stack Compose template (generated from models list)
+│   │   └── litellm-config.stack.yaml.j2# Stack LiteLLM config template (generated from models list)
 │   ├── playbooks/
 │   │   ├── os_setup.yaml              # Base packages, UFW, system limits, swap
 │   │   ├── nvidia_setup.yaml          # Driver 590-server, Container Toolkit
 │   │   ├── docker_setup.yaml          # Docker Engine, NVIDIA runtime
-│   │   ├── vllm_deploy.yaml           # Dirs, configs, model download, stack start, health check
+│   │   ├── stack_deploy.yaml          # Stack configs, model download, stack start, health check
+│   │   ├── triton_deploy.yaml         # Triton configs and deployment path
 │   │   └── verify.yaml                # Sanity checks
 │   └── inventory/
 │       ├── hosts.yaml                 # GPU server inventory [gpu_nodes]
 │       └── group_vars/gpu_nodes/
-│           ├── vars.yaml              # Model specs, ports (committed)
+│           ├── vars.yaml              # Stack model specs, serving params, ports (committed)
 │           └── vault.yaml             # Secrets (AES256-encrypted, never commit plaintext)
 ├── docker/
 │   ├── Dockerfile.ansible
@@ -117,7 +120,7 @@ chmod 600 ~/.ssh/id_ed25519
 
 Day-to-day deployment inputs live in two files under `ansible/inventory/group_vars/gpu_nodes/`:
 
-**`vars.yaml`** — committed, no secrets. For the `stack` and `vllm` backends, this is the file you edit to add, switch, or remove models and tune serving parameters. Shared serving defaults live under `vllm_defaults.config`, per-model overrides under `models[*].vllm`, parser-related flags under `parser_profiles`, and one-off vLLM CLI flags under `models[*].extra_args`:
+**`vars.yaml`** — committed, no secrets. For the `stack` backend, this is the primary file you edit to add, switch, or remove models and tune serving parameters. Shared serving defaults live under `vllm_defaults.config`, per-model overrides under `models[*].vllm`, parser-related flags under `parser_profiles`, and one-off vLLM CLI flags under `models[*].extra_args`:
 ```yaml
 vllm_defaults:
   repository: "vllm/vllm-openai"
@@ -153,7 +156,8 @@ models:
 ```
 
 Use `enabled: false` to keep a model in the catalog without deploying it.
-Use `vllm:` with snake_case keys. Older `vllmConfig` entries are legacy and are ignored by the current `stack`/`vllm` templates.
+Use `vllm:` with snake_case keys. Older `vllmConfig` entries are legacy and are ignored by the current `stack` templates.
+`vars.yaml` is the primary committed source for stack serving parameters, but `./scripts/deploy.sh -e key=value` can still override inventory values at deploy time.
 
 **`vault.yaml`** — AES256-encrypted, never commit in plaintext:
 ```
@@ -178,8 +182,8 @@ ansible_become_password: "..."   # sudo password for the mrk user
 # Rebuild the Ansible image (required after changes to requirements.yaml or ansible-run.sh)
 ./scripts/deploy.sh --build
 
-# vLLM-only deployment
-./scripts/deploy.sh -e inference_backend=vllm
+# Triton deployment
+./scripts/deploy.sh -e inference_backend=triton
 ```
 
 The script prompts for the Vault password at startup (same as the `mrk` sudo password).
@@ -224,12 +228,15 @@ The `hf_token` in the vault is a real HuggingFace API token:
 | `os_setup.yaml` | Base packages, NTP, UFW (ports 22/4000/3000), system limits, swap off |
 | `nvidia_setup.yaml` | Driver 590-server (from CUDA repo), Container Toolkit, nvidia-smi verify |
 | `docker_setup.yaml` | Docker Engine, NVIDIA runtime as default, mrk added to docker group |
-| `vllm_deploy.yaml` | Generate configs from templates, pre-download model weights, start stack, health check |
+| `stack_deploy.yaml` | Generate stack configs from templates, pre-download model weights, start stack, health check |
+| `triton_deploy.yaml` | Generate Triton configs and deploy the Triton-based serving path |
 | `verify.yaml` | Docker version, GPU access check |
 
 ### Changing the Model
 
-For the `stack` and `vllm` backends, `vars.yaml` drives the generated `docker-compose.yml` and `litellm-config.yaml` on the server, and those files are regenerated on every deploy. The supported serving-parameter schema comes from the active Ansible templates: shared defaults come from `vllm_defaults.config`, per-model overrides from `models[*].vllm`, parser flags from `parser_profiles`, and any non-templated vLLM flags should go in `extra_args`. To add, switch, or remove a model: edit `vars.yaml`, run `./scripts/deploy.sh`.
+For the `stack` backend, `vars.yaml` drives the generated `docker-compose.yml` and `litellm-config.yaml` on the server, and those files are regenerated on every deploy. The supported serving-parameter schema comes from the active stack templates: shared defaults come from `vllm_defaults.config`, per-model overrides from `models[*].vllm`, parser flags from `parser_profiles`, and any non-templated vLLM flags should go in `extra_args`. To add, switch, or remove a model: edit `vars.yaml`, run `./scripts/deploy.sh`.
+
+This stack-specific flow does not cover every serving path in the repo. Local `docker/docker-compose.yml` has its own committed serving flags, and the Triton deployment path uses its own playbook/templates and parameter schema.
 
 ```yaml
 # Switch models by flipping enabled
