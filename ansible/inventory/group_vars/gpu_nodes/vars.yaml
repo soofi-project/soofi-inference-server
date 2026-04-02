@@ -70,6 +70,20 @@ models:
       kv_cache_dtype: "fp8"
       calculate_kv_scales: true
 
+  - name: "Qwen3.5-27B-FP8"
+    enabled: true
+    hf_name: "Qwen/Qwen3.5-27B-FP8"
+    gpu_ids: ["1"]
+    parser_profile: "qwen3"
+    vllm:
+      gpu_memory_utilization: 0.35
+      max_num_seqs: 4
+      language_model_only: true
+      max_num_batched_tokens: 12288
+      kv_cache_dtype: "fp8"
+      calculate_kv_scales: true
+
+
   - name: "NVIDIA-Nemotron-3-Super-120B-A12B-FP8"
     enabled: false
     hf_name: "unsloth/NVIDIA-Nemotron-3-Super-120B-A12B-FP8"
@@ -128,7 +142,7 @@ models:
     gpu_ids: ["1"]
     parser_profile: "nemotron_v3"
     vllm:
-      gpu_memory_utilization: 0.4
+      gpu_memory_utilization: 0.35
       max_model_len: 4000
       enable_chunked_prefill: false
       swap_space: 16
