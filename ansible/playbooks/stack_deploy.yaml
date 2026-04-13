@@ -11,6 +11,10 @@
   gather_facts: false
 
   tasks:
+    - name: Select enabled models
+      ansible.builtin.set_fact:
+        active_models: "{{ models | selectattr('enabled', 'equalto', true) | list }}"
+
     # ── 1. Directories ────────────────────────────────────────────────────────
     - name: Create deployment directories
       ansible.builtin.file:
@@ -85,7 +89,7 @@
         file_type: directory
         recurse: false
       register: model_caches
-      loop: "{{ models }}"
+      loop: "{{ active_models }}"
       loop_control:
         label: "{{ item.hf_name }}"
       failed_when: false
@@ -105,7 +109,7 @@
           -e HF_TOKEN={{ hf_token }}
           -e HUGGING_FACE_HUB_TOKEN={{ hf_token }}
           {% endif %}
-          {{ item.item.repository | default(vllm_repository) }}:{{ item.item.tag | default(vllm_tag) }}
+          {{ item.item.repository | default(vllm_defaults.repository) }}:{{ item.item.tag | default(vllm_defaults.tag) }}
           download {{ item.item.hf_name }}
       when: item.matched == 0
       loop: "{{ model_caches.results }}"
@@ -228,12 +232,12 @@
         'Started' in (compose_up.stderr | default('')) or
         'Created' in (compose_up.stderr | default('')) or
         'Recreated' in (compose_up.stderr | default(''))
-      when: models | length > 0
+      when: active_models | length > 0
 
     - name: Show compose output
       ansible.builtin.debug:
         var: compose_up.stderr_lines
-      when: models | length > 0 and (compose_up.changed | default(false))
+      when: active_models | length > 0 and (compose_up.changed | default(false))
 
     - name: Restart LiteLLM (config file changed)
       ansible.builtin.command:
@@ -243,8 +247,8 @@
 
     - name: Skip stack start (no models configured)
       ansible.builtin.debug:
-        msg: "No models in vars.yaml — skipping stack start."
-      when: models | length == 0
+        msg: "No enabled models in vars.yaml — skipping stack start."
+      when: active_models | length == 0
 
     # ── 8. Health check ──────────────────────────────────────────────────────
     - name: Wait for LiteLLM to be ready
@@ -255,14 +259,14 @@
       until: litellm_health.status == 200
       retries: 40
       delay: 30
-      when: models | length > 0
+      when: active_models | length > 0
 
     - name: Query deployed models via LiteLLM
       ansible.builtin.uri:
         url: "http://localhost:{{ litellm_port | default(4000) }}/v1/models"
         return_content: true
       register: litellm_models
-      when: models | length > 0
+      when: active_models | length > 0
 
     # ── 9. Warm up STT (load Whisper into GPU memory) ────────────────────────
     - name: Warm up STT
@@ -282,4 +286,4 @@
           - "LiteLLM API: http://{{ ansible_host }}:{{ litellm_port | default(4000) }}/v1"
           - "Open WebUI:  http://{{ ansible_host }}:{{ webui_port | default(3000) }}"
           - "Deployed models: {{ (litellm_models.json.data | map(attribute='id') | list) if litellm_models.json is defined else '(skipped in check mode)' }}"
-      when: models | length > 0
+      when: active_models | length > 0

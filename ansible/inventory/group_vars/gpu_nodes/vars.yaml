@@ -9,129 +9,152 @@ cuda_version: "12-4"                  # apt format (dash-separated)
 
 deploy_dir: /opt/soofi
 
-# vLLM image defaults — override per model if needed
-vllm_repository: "vllm/vllm-openai"
-vllm_tag: "v0.17.1"
+# vLLM defaults — override per model if needed.
+vllm_defaults:
+  repository: "vllm/vllm-openai"
+  tag: "v0.17.1"
+  config:
+    tensor_parallel_size: 1
+    gpu_memory_utilization: 0.92
+    max_model_len: 32768
+    dtype: "auto"
+    enable_prefix_caching: true
+    enable_chunked_prefill: true
+
+# Shared parser/tooling presets for model families.
+parser_profiles:
+  qwen3:
+    enable_auto_tool_choice: true
+    tool_call_parser: "qwen3_coder"
+    reasoning_parser: "qwen3"
+
+  nemotron_v3:
+    enable_auto_tool_choice: true
+    tool_call_parser: "qwen3_coder"
+    reasoning_parser: "nemotron_v3"
+
+  minimax_m2:
+    enable_auto_tool_choice: true
+    tool_call_parser: "minimax_m2"
+    reasoning_parser: "minimax_m2_append_think"
 
 # Models to deploy — each gets its own vllm/vllm-openai container.
-# Adding a model = adding one entry here; no other file needs to change.
-# repository/tag are optional — fall back to vllm_repository/vllm_tag above.
+# Set enabled: false to keep a model in the catalog without deploying it.
+# repository/tag are optional — fall back to vllm_defaults above.
+# Use parser_profile for tool/reasoning settings; keep extra_args for one-offs.
 models:
-
-  # - name: "qwen35-35b-fp8"
-  #   hf_name: "Qwen/Qwen3.5-35B-A3B-FP8"
-  #   gpu_ids: ["0"]
-  #   vllmConfig:
-  #     tensorParallelSize: 1
-  #     gpuMemoryUtilization: 0.92
-  #     maxModelLen: 32768
-  #     dtype: "auto"
-  #     enablePrefixCaching: true
-  #     enableChunkedPrefill: false
-  #     extraArgs:
-  #       - "--served-model-name"
-  #       - "qwen35-35b-fp8"
-  #       - "--enable-auto-tool-choice"
-  #       - "--tool-call-parser"
-  #       - "qwen3_coder"
-  #       - "--reasoning-parser"
-  #       - "qwen3"
-  #       - "--swap-space"
-  #       - "16"
-  #       - "--max-num-seqs"
-  #       - "8"
-
+# Embedding model for the agents
   - name: "qwen3-embedding-8b"
+    enabled: true
     hf_name: "Qwen/Qwen3-Embedding-8B"
     gpu_ids: ["1"]
-    vllmConfig:
-      tensorParallelSize: 1
-      gpuMemoryUtilization: 0.50
-      maxModelLen: 32768
+    vllm:
+      tensor_parallel_size: 1
+      gpu_memory_utilization: 0.2
+      max_model_len: 32768
       dtype: "auto"
-      enablePrefixCaching: false
-      enableChunkedPrefill: false
-      extraArgs:
-        - "--served-model-name"
-        - "qwen3-embedding-8b"
+      enable_prefix_caching: false
+      enable_chunked_prefill: false
 
-  # VL Embedding — only useful if the LLM agent is also a VLM (e.g. Qwen2.5-VL)
-  # Switch back to this once a Vision-Language Model is deployed as main LLM.
-  # - name: "qwen3-vl-embedding-8b"
-  #   hf_name: "Qwen/Qwen3-VL-Embedding-8B"
-  #   gpu_ids: ["1"]
 
-  #   vllmConfig:
-  #     tensorParallelSize: 1
-  #     gpuMemoryUtilization: 0.50
-  #     maxModelLen: 32768
-  #     dtype: "auto"
-  #     enablePrefixCaching: false
-  #     enableChunkedPrefill: false
-  #     extraArgs:
-  #       - "--served-model-name"
-  #       - "qwen3-vl-embedding-8b"
-
+# ---- LLMs for the agents ------------
   - name: "qwen35-122b-fp8"
+    enabled: true
     hf_name: "Qwen/Qwen3.5-122B-A10B-FP8"
-    #gpu_ids: ["0", "1"]
     gpu_ids: ["0"]
-    vllmConfig:
-    #  tensorParallelSize: 2
-      gpuMemoryUtilization: 0.93
-      #maxModelLen: 32768
-      maxModelLen: 16384
-      dtype: "auto"
-      enablePrefixCaching: true
-      enableChunkedPrefill: false
-      extraArgs:
-        - "--served-model-name"
-        - "qwen35-122b-fp8"
-        - "--enable-auto-tool-choice"
-        - "--tool-call-parser"
-        - "qwen3_coder"
-        - "--reasoning-parser"
-        - "qwen3"
-        - "--swap-space"
-        - "16"
-        - "--max-num-seqs"
-        - "4"
+    parser_profile: "qwen3"
+    vllm:
+      max_num_seqs: 4
+      language_model_only: true
+      max_num_batched_tokens: 12288
+      kv_cache_dtype: "fp8"
+      calculate_kv_scales: true
 
-  # Coding (enable when weights are available)
-  # - name: "qwen3-coder-next-fp8"
-  #   hf_name: "Qwen/Qwen3-Coder-Next-FP8"
+  - name: "Qwen3.5-27B-FP8"
+    enabled: true
+    hf_name: "Qwen/Qwen3.5-27B-FP8"
+    gpu_ids: ["1"]
+    parser_profile: "qwen3"
+    vllm:
+      gpu_memory_utilization: 0.35
+      max_num_seqs: 4
+      language_model_only: true
+      max_num_batched_tokens: 12288
+      kv_cache_dtype: "fp8"
+      calculate_kv_scales: true
+
+
+  - name: "NVIDIA-Nemotron-3-Super-120B-A12B-FP8"
+    enabled: false
+    hf_name: "unsloth/NVIDIA-Nemotron-3-Super-120B-A12B-FP8"
+    gpu_ids: ["0"]
+    parser_profile: "nemotron_v3"
+    vllm:
+      gpu_memory_utilization: 0.9
+      swap_space: 0
+      max_num_seqs: 512
+      trust_remote_code: true
+      kv_cache_dtype: "fp8"
+      pipeline_parallel_size: 1
+      data_parallel_size: 1
+      attention_backend: "TRITON_ATTN"
+      async_scheduling: true
+      mamba_ssm_cache_dtype: "float16"
+      max_cudagraph_capture_size: 128
+      enable_expert_parallel: true
+
+  - name: "NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
+    enabled: false
+    hf_name: "unsloth/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
+    gpu_ids: ["1"]
+    parser_profile: "nemotron_v3"
+    vllm:
+      gpu_memory_utilization: 0.7
+      swap_space: 0
+      max_num_seqs: 512
+      trust_remote_code: true
+      kv_cache_dtype: "fp8"
+      pipeline_parallel_size: 1
+      data_parallel_size: 1
+      attention_backend: "TRITON_ATTN"
+      async_scheduling: true
+      mamba_ssm_cache_dtype: "float16"
+      max_cudagraph_capture_size: 128
+        
+
+  # - name: "MiniMax-M2.5"
+  #   enabled: false
+  #   hf_name: "MiniMaxAI/MiniMax-M2.5"
   #   gpu_ids: ["0", "1"]
+  #   parser_profile: "minimax_m2"
+  #   vllm:
+  #     tensor_parallel_size: 2
+  #     max_model_len: 8000
+  #     trust_remote_code: true
+  #   extra_args:
+  #     - "--kv-cache-memory-bytes"
+  #     - "5000000000"
 
-  #   vllmConfig:
-  #     tensorParallelSize: 2
-  #     gpuMemoryUtilization: 0.90
-  #     maxModelLen: 32768
-  #     dtype: "auto"
-  #     enablePrefixCaching: true
-  #     enableChunkedPrefill: false
-  #     extraArgs:
-  #       - "--served-model-name"
-  #       - "qwen3-coder-next-fp8"
-  #       - "--enable-auto-tool-choice"
-  #       - "--tool-call-parser"
-  #       - "qwen3_coder"
-  #       - "--reasoning-parser"
-  #       - "qwen3"
 
-  # - name: "nemotron-nano-30b"
-  #   hf_name: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8"
-  #   gpu_ids: ["1"]
+  - name: "Nemotron-Cascade-2-30B-A3B-fp8"
+    enabled: true
+    hf_name: "chankhavu/Nemotron-Cascade-2-30B-A3B-FP8"
+    gpu_ids: ["1"]
+    parser_profile: "nemotron_v3"
+    vllm:
+      gpu_memory_utilization: 0.35
+      max_model_len: 4000
+      enable_chunked_prefill: false
+      swap_space: 16
+      max_num_seqs: 8
+      mamba_ssm_cache_dtype: "float32"
+      trust_remote_code: true
+    extra_args:
+      - "--seed"
+      - "3407"
 
-  #   vllmConfig:
-  #     tensorParallelSize: 1
-  #     gpuMemoryUtilization: 0.50
-  #     maxModelLen: 32768
-  #     dtype: "auto"
-  #     enablePrefixCaching: true
-  #     enableChunkedPrefill: false
-  #     extraArgs:
-  #       - "--served-model-name"
-  #       - "nemotron-nano-30b"
+
+  
 
   # ── Reranker (Qwen3, cross-encoder via vLLM score task, GPU 1, ~8 GB) ──────
   - name: "qwen3-reranker-4b"
