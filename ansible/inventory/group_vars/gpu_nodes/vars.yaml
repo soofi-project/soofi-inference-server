@@ -71,7 +71,7 @@ models:
       calculate_kv_scales: true
 
   - name: "Qwen3.5-27B-FP8"
-    enabled: true
+    enabled: false
     hf_name: "Qwen/Qwen3.5-27B-FP8"
     gpu_ids: ["1"]
     parser_profile: "qwen3"
@@ -137,7 +137,7 @@ models:
 
 
   - name: "Nemotron-Cascade-2-30B-A3B-fp8"
-    enabled: true
+    enabled: false
     hf_name: "chankhavu/Nemotron-Cascade-2-30B-A3B-FP8"
     gpu_ids: ["1"]
     parser_profile: "nemotron_v3"
@@ -158,23 +158,22 @@ models:
 
   # ── Reranker (Qwen3, cross-encoder via vLLM score task, GPU 1, ~8 GB) ──────
   - name: "qwen3-reranker-4b"
+    enabled: true
     hf_name: "Qwen/Qwen3-Reranker-4B"
     gpu_ids: ["1"]
-    internal_port: 8003
-    vllmConfig:
-      tensorParallelSize: 1
-      gpuMemoryUtilization: 0.15
-      maxModelLen: 8192
+    host_port: 8003
+    vllm:
+      tensor_parallel_size: 1
+      gpu_memory_utilization: 0.15
+      max_model_len: 8192
       dtype: "auto"
-      extraArgs:
-        - "--served-model-name"
-        - "qwen3-reranker-4b"
-        - "--runner"
-        - "pooling"
-        - "--hf-overrides"
-        - '{"architectures": ["Qwen3ForSequenceClassification"], "classifier_from_token": ["no", "yes"], "is_original_qwen3_reranker": true}'
-        - "--chat-template"
-        - "/app/chat_templates/qwen3_reranker.jinja"
+    extra_args:
+      - "--runner"
+      - "pooling"
+      - "--hf-overrides"
+      - '{"architectures": ["Qwen3ForSequenceClassification"], "classifier_from_token": ["no", "yes"], "is_original_qwen3_reranker": true}'
+      - "--chat-template"
+      - "/app/chat_templates/qwen3_reranker.jinja"
     extraVolumes:
       - "{{ deploy_dir }}/models/chat_templates:/app/chat_templates:ro"
 

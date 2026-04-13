@@ -75,6 +75,11 @@ services:
               device_ids: {{ model.gpu_ids | tojson }}
               capabilities: [gpu]
 
+{% if model.host_port is defined %}
+    ports:
+      - "{{ model.host_port }}:8000"
+
+{% endif %}
     environment:
       - HUGGING_FACE_HUB_TOKEN={{ hf_token }}
       - HF_TOKEN={{ hf_token }}
