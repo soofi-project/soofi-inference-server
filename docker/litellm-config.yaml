@@ -3,10 +3,10 @@
 # drop_params: true strips unsupported parameters (e.g. parallel_tool_calls from LangGraph).
 
 model_list:
-  - model_name: qwen35-122b-fp8
+  - model_name: NVIDIA-Nemotron-3-Super-120B-A12B-FP8
     litellm_params:
-      model: openai/qwen35-122b-fp8
-      api_base: http://vllm-qwen35-122b-fp8:8000/v1
+      model: openai/NVIDIA-Nemotron-3-Super-120B-A12B-FP8
+      api_base: http://vllm-NVIDIA-Nemotron-3-Super-120B-A12B-FP8:8000/v1
       api_key: "dummy"
 
   - model_name: qwen3-vl-embedding-8b

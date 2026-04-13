@@ -3,7 +3,7 @@
 # Source of truth: ansible/inventory/group_vars/gpu_nodes/vars.yaml
 
 model_list:
-{% for model in models %}
+{% for model in active_models %}
   - model_name: {{ model.name }}
     litellm_params:
       model: openai/{{ model.name }}
@@ -29,7 +29,7 @@ model_list:
 {% endif %}
 general_settings:
   pass_through_endpoints:
-{% for model in models %}
+{% for model in active_models %}
     - path: "/vllm-metrics/{{ model.name }}"
       target: "http://vllm-{{ model.name }}:8000/metrics"
       headers: {}

@@ -34,6 +34,8 @@ Open WebUI is included for browser-based chat.
 
 ## Quickstart (local Docker Compose)
 
+This local Compose path is separate from the Ansible-managed `stack` deployment. Its serving flags live in `docker/docker-compose.yml`, not in `ansible/inventory/group_vars/gpu_nodes/vars.yaml`.
+
 ```bash
 # 1. Create secrets file once (outside the repo)
 echo "HF_TOKEN=hf_your_token_here" > ~/.env.secrets
@@ -65,18 +67,19 @@ soofi-inference-server/
 │   ├── ansible.cfg
 │   ├── requirements.yaml              # Galaxy collections (community.docker, community.general)
 │   ├── templates/
-│   │   ├── docker-compose.vllm.yml.j2 # Docker Compose template (generated from models list)
-│   │   └── litellm-config.vllm.yaml.j2# LiteLLM config template (generated from models list)
+│   │   ├── docker-compose.stack.yml.j2 # Stack Compose template (generated from models list)
+│   │   └── litellm-config.stack.yaml.j2# Stack LiteLLM config template (generated from models list)
 │   ├── playbooks/
 │   │   ├── os_setup.yaml              # Base packages, UFW, system limits, swap
 │   │   ├── nvidia_setup.yaml          # Driver 590-server, Container Toolkit
 │   │   ├── docker_setup.yaml          # Docker Engine, NVIDIA runtime
-│   │   ├── vllm_deploy.yaml           # Dirs, configs, model download, stack start, health check
+│   │   ├── stack_deploy.yaml          # Stack configs, model download, stack start, health check
+│   │   ├── triton_deploy.yaml         # Triton configs and deployment path
 │   │   └── verify.yaml                # Sanity checks
 │   └── inventory/
 │       ├── hosts.yaml                 # GPU server inventory [gpu_nodes]
 │       └── group_vars/gpu_nodes/
-│           ├── vars.yaml              # Model specs, ports (committed)
+│           ├── vars.yaml              # Stack model specs, serving params, ports (committed)
 │           └── vault.yaml             # Secrets (AES256-encrypted, never commit plaintext)
 ├── docker/
 │   ├── Dockerfile.ansible
@@ -115,35 +118,46 @@ chmod 600 ~/.ssh/id_ed25519
 
 ### Configuration
 
-All deployment settings live in two files under `ansible/inventory/group_vars/gpu_nodes/`:
+Day-to-day deployment inputs live in two files under `ansible/inventory/group_vars/gpu_nodes/`:
 
-**`vars.yaml`** — committed, no secrets. **This is the only file you need to change** to add, switch, or remove models:
+**`vars.yaml`** — committed, no secrets. For the `stack` backend, this is the primary file you edit to add, switch, or remove models and tune serving parameters. Shared serving defaults live under `vllm_defaults.config`, per-model overrides under `models[*].vllm`, parser-related flags under `parser_profiles`, and one-off vLLM CLI flags under `models[*].extra_args`:
 ```yaml
-# vLLM image defaults — override per model if needed
-vllm_repository: "vllm/vllm-openai"
-vllm_tag: "v0.17.1"
+vllm_defaults:
+  repository: "vllm/vllm-openai"
+  tag: "v0.17.1"
+  config:
+    gpu_memory_utilization: 0.92
+    max_model_len: 32768
+    dtype: "auto"
+    enable_prefix_caching: true
+    enable_chunked_prefill: true
+
+parser_profiles:
+  qwen3:
+    enable_auto_tool_choice: true
+    tool_call_parser: "qwen3_coder"
+    reasoning_parser: "qwen3"
 
 # Models — each entry gets its own container
 models:
-  - name: "qwen35-35b-fp8"            # Docker service name (no dots)
-    hf_name: "Qwen/Qwen3.5-35B-A3B-FP8"
-    gpu_ids: ["0", "1"]               # which GPUs this container gets
-    vllmConfig:
-      tensorParallelSize: 2
-      gpuMemoryUtilization: 0.80
-      maxModelLen: 32768
-      dtype: "auto"
-      enablePrefixCaching: true
-      enableChunkedPrefill: false
-      extraArgs:
-        - "--served-model-name"
-        - "qwen35-35b-fp8"
-        - "--enable-auto-tool-choice"
-        - "--tool-call-parser"
-        - "qwen3_coder"
-        - "--reasoning-parser"
-        - "qwen3"
+  - name: "qwen35-122b-fp8"
+    enabled: true
+    hf_name: "Qwen/Qwen3.5-122B-A10B-FP8"
+    gpu_ids: ["1"]
+    parser_profile: "qwen3"
+    vllm:
+      gpu_memory_utilization: 0.9
+      trust_remote_code: true
+      max_num_seqs: 4
+      kv_cache_dtype: "fp8"
+    extra_args:
+      - "--seed"
+      - "3407"
 ```
+
+Use `enabled: false` to keep a model in the catalog without deploying it.
+Use `vllm:` with snake_case keys. Older `vllmConfig` entries are legacy and are ignored by the current `stack` templates.
+`vars.yaml` is the primary committed source for stack serving parameters, but `./scripts/deploy.sh -e key=value` can still override inventory values at deploy time.
 
 **`vault.yaml`** — AES256-encrypted, never commit in plaintext:
 ```
@@ -153,10 +167,10 @@ ansible_become_password: "..."   # sudo password for the mrk user
 
 ### Running the Deployment
 
-`deploy.sh` is the single entrypoint. It starts the Ansible container automatically and runs the playbook:
+`deploy.sh` is the single entrypoint. It starts the Ansible container automatically and runs `site.yaml`. By default this uses the `stack` backend.
 
 ```bash
-# Full provisioning run
+# Full deployment (default: stack backend)
 ./scripts/deploy.sh
 
 # Dry-run (no changes applied)
@@ -167,29 +181,10 @@ ansible_become_password: "..."   # sudo password for the mrk user
 
 # Rebuild the Ansible image (required after changes to requirements.yaml or ansible-run.sh)
 ./scripts/deploy.sh --build
-```
 
-### Switching the Inference Backend
-
-The default backend is **vLLM** (`vllm/vllm-openai` container per model). To deploy Triton instead:
-
-```bash
+# Triton deployment
 ./scripts/deploy.sh -e inference_backend=triton
 ```
-
-`site.yaml` picks the matching playbook automatically:
-- `inference_backend=vllm` → `playbooks/vllm_deploy.yaml` (default)
-- `inference_backend=triton` → `playbooks/triton_deploy.yaml`
-
-**Before switching to Triton**, `vars.yaml` needs to be updated — the model spec format differs:
-
-| Field | vLLM | Triton |
-|-------|------|--------|
-| Model identifier | `name` | `triton_name` |
-| GPU assignment | `gpu_ids: ["0","1"]` | `cuda_visible_devices: "0,1"` |
-| Parallelism | `vllmConfig.tensorParallelSize` | `tensor_parallel_size` |
-
-Both playbooks and their Docker Compose files are kept in the repo (`docker/docker-compose.yml` for vLLM, `docker/docker-compose.triton.yml` for Triton).
 
 The script prompts for the Vault password at startup (same as the `mrk` sudo password).
 
@@ -233,36 +228,53 @@ The `hf_token` in the vault is a real HuggingFace API token:
 | `os_setup.yaml` | Base packages, NTP, UFW (ports 22/4000/3000), system limits, swap off |
 | `nvidia_setup.yaml` | Driver 590-server (from CUDA repo), Container Toolkit, nvidia-smi verify |
 | `docker_setup.yaml` | Docker Engine, NVIDIA runtime as default, mrk added to docker group |
-| `vllm_deploy.yaml` | Generate configs from templates, pre-download model weights, start stack, health check |
+| `stack_deploy.yaml` | Generate stack configs from templates, pre-download model weights, start stack, health check |
+| `triton_deploy.yaml` | Generate Triton configs and deploy the Triton-based serving path |
 | `verify.yaml` | Docker version, GPU access check |
 
 ### Changing the Model
 
-`vars.yaml` is the **single source of truth** — `docker-compose.yml` and `litellm-config.yaml` on the server are regenerated on every deploy. To add, switch, or remove a model: edit `vars.yaml`, run `./scripts/deploy.sh`.
+For the `stack` backend, `vars.yaml` drives the generated `docker-compose.yml` and `litellm-config.yaml` on the server, and those files are regenerated on every deploy. The supported serving-parameter schema comes from the active stack templates: shared defaults come from `vllm_defaults.config`, per-model overrides from `models[*].vllm`, parser flags from `parser_profiles`, and any non-templated vLLM flags should go in `extra_args`. To add, switch, or remove a model: edit `vars.yaml`, run `./scripts/deploy.sh`.
+
+This stack-specific flow does not cover every serving path in the repo. Local `docker/docker-compose.yml` has its own committed serving flags, and the Triton deployment path uses its own playbook/templates and parameter schema.
 
 ```yaml
-# Switch model: comment out the old one, uncomment the new one
+# Switch models by flipping enabled
 models:
   - name: "qwen35-122b-fp8"
+    enabled: true
     hf_name: "Qwen/Qwen3.5-122B-A10B-FP8"
-    gpu_ids: ["0", "1"]
-    vllmConfig:
-      tensorParallelSize: 2
-      gpuMemoryUtilization: 0.90
+    gpu_ids: ["1"]
+    parser_profile: "qwen3"
+    vllm:
+      max_num_seqs: 4
       # ...
 
-# Two models in parallel (VRAM must fit):
+  - name: "MiniMax-M2.5"
+    enabled: false
+    hf_name: "MiniMaxAI/MiniMax-M2.5"
+    gpu_ids: ["0", "1"]
+    parser_profile: "minimax_m2"
+    vllm:
+      tensor_parallel_size: 2
+      # ...
+```
+
+```yaml
+# Two models in parallel (VRAM must fit)
 models:
   - name: "qwen35-122b-fp8"
-    gpu_ids: ["0", "1"]
+    enabled: true
+    gpu_ids: ["1"]
     # ...
 
-  - name: "qwen35-35b-fp8"
+  - name: "NVIDIA-Nemotron-3-Super-120B-A12B-FP8"
+    enabled: true
     gpu_ids: ["0"]
     # ...
 ```
 
-Removed models have their containers stopped automatically on the next deploy (`--remove-orphans`). The HF cache stays on disk until you run `./scripts/remove-model.sh`.
+Disabled or removed models have their containers stopped automatically on the next deploy (`--remove-orphans`). The HF cache stays on disk until you run `./scripts/remove-model.sh`.
 
 ### Removing a Model
 
@@ -332,13 +344,13 @@ Configured in standalone mode (`FabricManagementMode=0`) for PCIe-only setups (n
 
 GPU assignment is controlled per model via `gpu_ids` in `vars.yaml`:
 
-| Configuration | `gpu_ids` | `tensorParallelSize` | Use case |
-|---------------|-----------|----------------------|----------|
+| Configuration | `gpu_ids` | `vllm.tensor_parallel_size` | Use case |
+|---------------|-----------|-----------------------------|----------|
 | Both GPUs | `["0", "1"]` | `2` | 35B–122B models |
 | GPU 0 only | `["0"]` | `1` | smaller models / second model in parallel |
 | GPU 1 only | `["1"]` | `1` | smaller models / second model in parallel |
 
-Currently: `qwen35-35b-fp8` on both GPUs (TP=2). To switch to the 122B model, comment out the 35B entry and uncomment the 122B entry in `vars.yaml`.
+To switch models, set the old entry to `enabled: false`, set the new one to `enabled: true`, adjust `gpu_ids` and `vllm.tensor_parallel_size` if needed, then run `./scripts/deploy.sh`.
 
 ## Driver Stack
 
