@@ -157,6 +157,9 @@ models:
   
 
   # ── Reranker (Qwen3, cross-encoder via vLLM score task, GPU 1, ~8 GB) ──────
+  # enable_prefix_caching / enable_chunked_prefill are explicitly disabled —
+  # vLLM does not officially support them for pooling models and they can
+  # cause failures or degraded scores. Overrides the global vllm_defaults.
   - name: "qwen3-reranker-4b"
     enabled: true
     hf_name: "Qwen/Qwen3-Reranker-4B"
@@ -167,6 +170,8 @@ models:
       gpu_memory_utilization: 0.15
       max_model_len: 8192
       dtype: "auto"
+      enable_prefix_caching: false
+      enable_chunked_prefill: false
     extra_args:
       - "--runner"
       - "pooling"
