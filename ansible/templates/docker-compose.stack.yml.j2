@@ -217,10 +217,22 @@ services:
     volumes:
       - {{ deploy_dir }}/docker/litellm-config.yaml:/app/config.yaml
 
-    # Force container recreation when model list changes — Compose does not
-    # detect changes to volume-mounted config files, only to the service definition.
+    # Force container recreation when the registered model list changes —
+    # Compose does not detect changes to volume-mounted config files, only to
+    # the service definition. Includes vLLM models plus STT/TTS registrations
+    # so adding e.g. tts-1-hd triggers a recreate.
+{% set _litellm_names = active_models | map(attribute='name') | list %}
+{% if stt_service is defined and stt_service.litellm_name is defined %}
+{%   set _ = _litellm_names.append(stt_service.litellm_name) %}
+{% endif %}
+{% if tts_service is defined and tts_service.litellm_name is defined %}
+{%   set _ = _litellm_names.append(tts_service.litellm_name) %}
+{% endif %}
+{% if tts_service is defined and tts_service.litellm_name_hd is defined %}
+{%   set _ = _litellm_names.append(tts_service.litellm_name_hd) %}
+{% endif %}
     environment:
-      - LITELLM_MODELS={{ models | map(attribute='name') | list | join(',') }}
+      - LITELLM_MODELS={{ _litellm_names | join(',') }}
 
     command: ["--config", "/app/config.yaml", "--port", "4000"]
 

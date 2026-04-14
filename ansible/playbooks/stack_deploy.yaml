@@ -136,14 +136,17 @@
         label: "{{ item.path | basename }}"
       when: incomplete_files.files | length > 0
 
-    # ── 4. TTS assets (Piper voice models) ───────────────────────────────────
-    - name: Create Piper voice model directory
+    # ── 4. TTS assets (Piper voice models + XTTS cache) ──────────────────────
+    - name: Create TTS model directories
       ansible.builtin.file:
-        path: "{{ deploy_dir }}/models/piper"
+        path: "{{ item }}"
         state: directory
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: "0755"
+      loop:
+        - "{{ deploy_dir }}/models/piper"
+        - "{{ deploy_dir }}/models/xtts_cache"
       when: tts_service is defined
 
     - name: Check if Piper voice model files exist
