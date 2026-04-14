@@ -27,6 +27,14 @@ model_list:
       api_key: "dummy"
 
 {% endif %}
+{% if tts_service is defined and tts_service.litellm_name_hd is defined %}
+  - model_name: {{ tts_service.litellm_name_hd }}
+    litellm_params:
+      model: {{ tts_service.litellm_model_hd }}
+      api_base: http://{{ tts_service.container_name }}:{{ tts_service.container_port }}/v1
+      api_key: "dummy"
+
+{% endif %}
 general_settings:
   pass_through_endpoints:
 {% for model in active_models %}

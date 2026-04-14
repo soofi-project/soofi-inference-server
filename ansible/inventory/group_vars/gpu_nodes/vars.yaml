@@ -156,6 +156,32 @@ models:
 
   
 
+  # ── Reranker (Qwen3, cross-encoder via vLLM score task, GPU 1, ~8 GB) ──────
+  # enable_prefix_caching / enable_chunked_prefill are explicitly disabled —
+  # vLLM does not officially support them for pooling models and they can
+  # cause failures or degraded scores. Overrides the global vllm_defaults.
+  - name: "qwen3-reranker-4b"
+    enabled: true
+    hf_name: "Qwen/Qwen3-Reranker-4B"
+    gpu_ids: ["1"]
+    host_port: 8003
+    vllm:
+      tensor_parallel_size: 1
+      gpu_memory_utilization: 0.15
+      max_model_len: 8192
+      dtype: "auto"
+      enable_prefix_caching: false
+      enable_chunked_prefill: false
+    extra_args:
+      - "--runner"
+      - "pooling"
+      - "--hf-overrides"
+      - '{"architectures": ["Qwen3ForSequenceClassification"], "classifier_from_token": ["no", "yes"], "is_original_qwen3_reranker": true}'
+      - "--chat-template"
+      - "/app/chat_templates/qwen3_reranker.jinja"
+    extraVolumes:
+      - "{{ deploy_dir }}/models/chat_templates:/app/chat_templates:ro"
+
 # ── STT Service (speaches / faster-whisper) ──────────────────────────────────
 stt_service:
   container_name: "faster-whisper"
@@ -174,7 +200,10 @@ stt_service:
     - "WHISPER__COMPUTE_TYPE=float16"
     - "STT_MODEL_TTL=-1"
 
-# ── TTS Service (openedai-speech / Piper) ────────────────────────────────────
+# ── TTS Service (openedai-speech / Piper + XTTS) ─────────────────────────────
+# Image ":0.18.2" ships both Piper (CPU, tts-1) and Coqui XTTS v2 (GPU, tts-1-hd).
+# XTTS weights (~2 GB) are downloaded by Coqui on first request and cached under
+# TTS_HOME=/app/voices/tts, which persists in the mounted piper volume.
 tts_service:
   container_name: "openedai-speech"
   image: "ghcr.io/matatonic/openedai-speech:0.18.2"
@@ -182,12 +211,21 @@ tts_service:
   container_port: 8000
   litellm_name: "tts-1"
   litellm_model: "openai/tts-1"
+  litellm_name_hd: "tts-1-hd"
+  litellm_model_hd: "openai/tts-1-hd"
   healthcheck_path: "/health"
+  gpu_devices: ["1"]
   volumes:
-    - "{{ deploy_dir }}/models/piper:/app/voices"
+    # Piper models go to a dedicated mount to avoid overwriting /app/voices
+    # — that directory ships with speaker WAVs (alloy/echo/fable/nova/onyx/
+    # shimmer) used by XTTS for voice cloning.
+    - "{{ deploy_dir }}/models/piper:/app/piper:ro"
     - "{{ deploy_dir }}/models/piper/voice_to_speaker.yaml:/app/config/voice_to_speaker.yaml"
+    # Persist XTTS weights across container recreates
+    - "{{ deploy_dir }}/models/xtts_cache:/root/.local/share/tts"
   environment:
-    - "TTS_HOME=voices"
+    # Accept Coqui XTTS v2 non-commercial licence non-interactively
+    - "COQUI_TOS_AGREED=1"
   voices:
     # Piper ONNX models — HuggingFace base: rhasspy/piper-voices v1.0.0
     # Format: voice name → filename + HF path (de/de_DE/thorsten/high/...)
@@ -199,6 +237,24 @@ tts_service:
       path: "de/de_DE/kerstin/low"
     - filename: "en_US-lessac-high"
       path: "en/en_US/lessac/high"
+  # Coqui XTTS v2 — speaker_wav is a path to a reference WAV inside the
+  # container. /app/voices/*.wav ships with the matatonic image (alloy.wav,
+  # echo.wav, fable.wav, nova.wav, onyx.wav, shimmer.wav — all English
+  # samples). XTTS clones the voice timbre and renders German with a slight
+  # accent. Swap to a German reference sample later for best quality.
+  xtts_voices:
+    - name: "alloy"
+      speaker_wav: "voices/nova.wav"
+      language: "de"
+    - name: "nova"
+      speaker_wav: "voices/shimmer.wav"
+      language: "de"
+    - name: "shimmer"
+      speaker_wav: "voices/shimmer.wav"
+      language: "en"
+    - name: "onyx"
+      speaker_wav: "voices/onyx.wav"
+      language: "en"
 
 # Image versions
 litellm_image: "ghcr.io/berriai/litellm:main-v1.82.3-stable"

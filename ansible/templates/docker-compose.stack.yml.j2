@@ -40,6 +40,10 @@
 {% endfor %}
 
 {% endif %}
+{% if service.command is defined %}
+    command: {{ service.command | tojson }}
+
+{% endif %}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:{{ service.container_port }}{{ service.healthcheck_path | default('/health') }}"]
       interval: 30s
@@ -71,6 +75,11 @@ services:
               device_ids: {{ model.gpu_ids | tojson }}
               capabilities: [gpu]
 
+{% if model.host_port is defined %}
+    ports:
+      - "{{ model.host_port }}:8000"
+
+{% endif %}
     environment:
       - HUGGING_FACE_HUB_TOKEN={{ hf_token }}
       - HF_TOKEN={{ hf_token }}
@@ -78,6 +87,9 @@ services:
 
     volumes:
       - {{ deploy_dir }}/models/hf_cache:/root/.cache/huggingface
+{% for vol in model.extraVolumes | default([]) %}
+      - {{ vol }}
+{% endfor %}
 
     command:
       - "--model"
@@ -191,7 +203,6 @@ services:
 {% if tts_service is defined %}
 {{ render_service(tts_service) }}
 {% endif %}
-
   # ===========================================================================
   # LiteLLM Proxy — single external API endpoint for all models and services
   # ===========================================================================
@@ -206,10 +217,22 @@ services:
     volumes:
       - {{ deploy_dir }}/docker/litellm-config.yaml:/app/config.yaml
 
-    # Force container recreation when model list changes — Compose does not
-    # detect changes to volume-mounted config files, only to the service definition.
+    # Force container recreation when the registered model list changes —
+    # Compose does not detect changes to volume-mounted config files, only to
+    # the service definition. Includes vLLM models plus STT/TTS registrations
+    # so adding e.g. tts-1-hd triggers a recreate.
+{% set _litellm_names = active_models | map(attribute='name') | list %}
+{% if stt_service is defined and stt_service.litellm_name is defined %}
+{%   set _ = _litellm_names.append(stt_service.litellm_name) %}
+{% endif %}
+{% if tts_service is defined and tts_service.litellm_name is defined %}
+{%   set _ = _litellm_names.append(tts_service.litellm_name) %}
+{% endif %}
+{% if tts_service is defined and tts_service.litellm_name_hd is defined %}
+{%   set _ = _litellm_names.append(tts_service.litellm_name_hd) %}
+{% endif %}
     environment:
-      - LITELLM_MODELS={{ models | map(attribute='name') | list | join(',') }}
+      - LITELLM_MODELS={{ _litellm_names | join(',') }}
 
     command: ["--config", "/app/config.yaml", "--port", "4000"]
 
