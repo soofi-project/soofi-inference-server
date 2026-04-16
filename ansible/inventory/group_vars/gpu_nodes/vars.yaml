@@ -65,6 +65,7 @@ models:
     parser_profile: "qwen3"
     vllm:
       max_num_seqs: 4
+      max_model_len: 65536
       language_model_only: true
       max_num_batched_tokens: 12288
       kv_cache_dtype: "fp8"
