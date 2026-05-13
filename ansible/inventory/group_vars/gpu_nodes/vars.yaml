@@ -69,7 +69,6 @@ models:
       max_num_seqs: 32           
       gpu_memory_utilization: 0.5
       max_model_len: 262144      
-      language_model_only: false 
       kv_cache_dtype: "auto"     
       chat-template-kwargs: '{"preserve_thinking": true}'
       speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
