@@ -103,8 +103,9 @@
       ansible.builtin.command:
         cmd: >-
           docker run --rm
-          --entrypoint huggingface-cli
+          --entrypoint hf
           -v {{ deploy_dir }}/models/hf_cache:/root/.cache/huggingface
+          -e HF_HUB_ENABLE_HF_TRANSFER=1
           {% if hf_token | default('') | regex_search('^hf_') %}
           -e HF_TOKEN={{ hf_token }}
           -e HUGGING_FACE_HUB_TOKEN={{ hf_token }}

@@ -12,11 +12,11 @@ deploy_dir: /opt/soofi
 # vLLM defaults — override per model if needed.
 vllm_defaults:
   repository: "vllm/vllm-openai"
-  tag: "v0.17.1"
+  tag: "v0.20.1"
   config:
     tensor_parallel_size: 1
     gpu_memory_utilization: 0.92
-    max_model_len: 32768
+    max_model_len: 131072
     dtype: "auto"
     enable_prefix_caching: true
     enable_chunked_prefill: true
@@ -58,8 +58,69 @@ models:
 
 
 # ---- LLMs for the agents ------------
-  - name: "qwen35-122b-fp8"
+
+  - name: "qwen36-27b"
     enabled: true
+    hf_name: "Qwen/Qwen3.6-27B" 
+    parser_profile: "qwen3"
+    gpu_ids: ["0"]
+    vllm:
+      tensor_parallel_size: 1
+      max_num_seqs: 32           
+      gpu_memory_utilization: 0.7
+      max_model_len: 262144      
+      language_model_only: false 
+      kv_cache_dtype: "auto"     
+      chat-template-kwargs: '{"preserve_thinking": true}'
+      speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
+
+
+  - name: "qwen35-9b"
+    enabled: false
+    gpu_ids: ["0"]
+    parser_profile: "qwen3"
+    hf_name: "Qwen/Qwen3.5-9B"
+    vllm:
+      gpu_memory_utilization: 0.15
+      max_model_len: 262144
+      kv_cache_dtype: "auto"     
+      reasoning_parser: "qwen3" # Aktiviert die Thinking-Logik für 9B
+
+  - name: "qwen35-4b"
+    enabled: false
+    gpu_ids: ["1"]
+    parser_profile: "qwen3"
+    hf_name: "Qwen/Qwen3.5-4B"
+    vllm:
+      gpu_memory_utilization: 0.10
+      max_model_len: 262144
+      kv_cache_dtype: "auto"     
+      reasoning_parser: "qwen3"
+
+  - name: "qwen35-2b"
+    enabled: false
+    gpu_ids: ["1"]
+    parser_profile: "qwen3" 
+    hf_name: "Qwen/Qwen3.5-2B"
+    vllm:
+      gpu_memory_utilization: 0.15
+      max_model_len: 262144
+      kv_cache_dtype: "auto"   
+
+  - name: "qwen35-08b"
+    enabled: false
+    gpu_ids: ["1"]
+    parser_profile: "qwen3"  
+    hf_name: "Qwen/Qwen3.5-0.8B"
+    vllm:
+      gpu_memory_utilization: 0.1
+      max_model_len: 262144
+      kv_cache_dtype: "auto"   
+
+
+
+  - name: "qwen35-122b-fp8"
+    enabled: false
     hf_name: "Qwen/Qwen3.5-122B-A10B-FP8"
     gpu_ids: ["0"]
     parser_profile: "qwen3"
@@ -70,6 +131,47 @@ models:
       max_num_batched_tokens: 12288
       kv_cache_dtype: "fp8"
       calculate_kv_scales: true
+
+
+  - name: "qwen36-35b-a3b"
+    enabled: false
+    hf_name: "Qwen/Qwen3.6-35B-A3B" 
+    parser_profile: "qwen3"
+    gpu_ids: ["0"]
+    vllm:
+      tensor_parallel_size: 1
+      max_num_seqs: 16
+      gpu_memory_utilization: 0.85
+      max_model_len: 262144 
+      language_model_only: false
+      
+      kv_cache_dtype: "fp8"
+      calculate_kv_scales: true
+      chat-template-kwargs: '{"preserve_thinking": true}'
+      speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
+
+
+  # - name: "gemma4-31b-it"
+  #   hf_name: "google/gemma-4-31B-it"
+  #   vllm:
+  #     speculative_model: "google/gemma-4-31B-it-assistant" # Das hier ist der Turbo
+  #     num_speculative_tokens: 5
+
+  - name: "qwen3-coder-next-fp8"
+    enabled: false
+    hf_name: "Qwen/Qwen3-Coder-Next-FP8"
+    parser_profile: "qwen3"
+    gpu_ids: ["0"]
+    vllm:
+      tensor_parallel_size: 1
+      max_num_seqs: 4
+      gpu_memory_utilization: 0.95
+      max_model_len: 262144
+      language_model_only: false
+      max_num_batched_tokens: 65536
+      kv_cache_dtype: "fp8"
+      calculate_kv_scales: true
+
 
   - name: "Qwen3.5-27B-FP8"
     enabled: false
@@ -258,7 +360,7 @@ tts_service:
       language: "en"
 
 # Image versions
-litellm_image: "ghcr.io/berriai/litellm:main-v1.82.3-stable"
+litellm_image: "ghcr.io/berriai/litellm:v1.83.14-stable.patch.2"
 webui_image: "ghcr.io/open-webui/open-webui:v0.8.10"
 
 # Ports

@@ -9,6 +9,9 @@ model_list:
       model: openai/{{ model.name }}
       api_base: http://vllm-{{ model.name }}:8000/v1
       api_key: "dummy"
+      supports_function_calling: true
+      supports_tool_choice: true
+      max_tokens: 16384
 
 {% endfor %}
 {% if stt_service is defined and stt_service.litellm_name is defined %}
@@ -44,9 +47,13 @@ general_settings:
 {% endfor %}
 
 litellm_settings:
-  drop_params: true
+  drop_params: false
   set_verbose: false
+  tool_format: openai
   callbacks:
     - prometheus
+
 router_settings:
+  enable_auto_tool_choice: true
+  fallback_to_default: false
   timeout: 120

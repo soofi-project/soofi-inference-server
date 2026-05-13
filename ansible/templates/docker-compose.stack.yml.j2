@@ -172,6 +172,14 @@ services:
 {% if cfg.enable_expert_parallel | default(false) %}
       - "--enable-expert-parallel"
 {% endif %}
+{% if cfg.speculative_config is defined %}
+      - "--speculative-config"
+      - {{ cfg.speculative_config | tojson }}
+{% endif %}
+{% if cfg.chat_template_kwargs is defined %}
+      - "--chat-template-kwargs"
+      - {{ cfg.chat_template_kwargs | tojson }}
+{% endif %}
 {% for arg in model.extra_args | default([]) %}
       - {{ arg | tojson }}
 {% endfor %}
