@@ -47,7 +47,7 @@ models:
   - name: "qwen3-embedding-8b"
     enabled: true
     hf_name: "Qwen/Qwen3-Embedding-8B"
-    gpu_ids: ["1"]
+    gpu_ids: ["0"]
     vllm:
       tensor_parallel_size: 1
       gpu_memory_utilization: 0.2
@@ -61,18 +61,21 @@ models:
 
   - name: "qwen36-27b"
     enabled: true
-    hf_name: "Qwen/Qwen3.6-27B" 
+    hf_name: "Qwen/Qwen3.6-27B-FP8" 
     parser_profile: "qwen3"
     gpu_ids: ["0"]
     vllm:
       tensor_parallel_size: 1
       max_num_seqs: 32           
-      gpu_memory_utilization: 0.7
+      gpu_memory_utilization: 0.5
       max_model_len: 262144      
       language_model_only: false 
       kv_cache_dtype: "auto"     
       chat-template-kwargs: '{"preserve_thinking": true}'
       speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
+      enable_auto_tool_choice: true
+      tool_call_parser: "qwen3_coder"
+      language_model_only: true
 
 
   - name: "qwen35-9b"
@@ -266,7 +269,7 @@ models:
   - name: "qwen3-reranker-4b"
     enabled: true
     hf_name: "Qwen/Qwen3-Reranker-4B"
-    gpu_ids: ["1"]
+    gpu_ids: ["0"]
     host_port: 8003
     vllm:
       tensor_parallel_size: 1
