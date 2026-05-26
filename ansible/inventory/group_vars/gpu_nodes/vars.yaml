@@ -1,6 +1,7 @@
 # Deployment variables for gpu_nodes
 # Secrets (hf_token, litellm_master_key) are in vault.yaml — encrypt before committing:
 #   ansible-vault encrypt ansible/inventory/group_vars/gpu_nodes/vault.yaml
+# Parser reference (tool_call_parser / reasoning_parser choices): see PARSERS.md
 
 # NVIDIA stack versions
 nvidia_driver_version: "590"
@@ -12,7 +13,7 @@ deploy_dir: /opt/soofi
 # vLLM defaults — override per model if needed.
 vllm_defaults:
   repository: "vllm/vllm-openai"
-  tag: "v0.20.1"
+  tag: "v0.21.0"
   config:
     tensor_parallel_size: 1
     dtype: "auto"
@@ -23,12 +24,17 @@ vllm_defaults:
 parser_profiles:
   qwen3:
     enable_auto_tool_choice: true
+    tool_call_parser: "qwen3_xml"
+    reasoning_parser: "qwen3"
+
+  qwen3_coder:
+    enable_auto_tool_choice: true
     tool_call_parser: "qwen3_coder"
     reasoning_parser: "qwen3"
 
   nemotron_v3:
     enable_auto_tool_choice: true
-    tool_call_parser: "qwen3_coder"
+    tool_call_parser: "qwen3_xml"
     reasoning_parser: "nemotron_v3"
 
   minimax_m2:
@@ -45,7 +51,7 @@ models:
   - name: "qwen3-embedding-8b"
     enabled: true
     hf_name: "Qwen/Qwen3-Embedding-8B"
-    gpu_ids: ["0"]
+    gpu_ids: ["1"]
     vllm:
       tensor_parallel_size: 1
       gpu_memory_utilization: 0.2
@@ -57,20 +63,129 @@ models:
 
 # ---- LLMs for the agents ------------
 
-  - name: "qwen36-27b"
+
+  - name: "qwen35-122b"
     enabled: true
-    hf_name: "Qwen/Qwen3.6-27B-FP8" 
+    hf_name: "Qwen/Qwen3.5-122B-A10B-FP8"
+    gpu_ids: ["0"]
+    parser_profile: "qwen3"
+    vllm:
+      tensor_parallel_size: 1
+      gpu_memory_utilization: 0.9
+      max_num_seqs: 4
+      max_model_len: 262144
+      language_model_only: true
+      kv_cache_dtype: "fp8"
+      calculate_kv_scales: true
+      chat_template_kwargs: '{"enable_thinking": false}'
+    #  speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
+
+  - name: "qwen36-35b"
+    enabled: false
+    hf_name: "Qwen/Qwen3.6-35B-A3B-FP8"
+    parser_profile: "qwen3"
+    gpu_ids: ["1"]
+    vllm:
+      tensor_parallel_size: 1
+      max_num_seqs: 8
+      gpu_memory_utilization: 0.45
+      max_model_len: 262144
+      kv_cache_dtype: "auto"
+      chat_template_kwargs: '{"enable_thinking": false}'
+   #   speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
+      language_model_only: true
+
+  - name: "qwen35-35b"
+    enabled: false
+    hf_name: "Qwen/Qwen3.5-35B-A3B-FP8"
     parser_profile: "qwen3"
     gpu_ids: ["0"]
     vllm:
       tensor_parallel_size: 1
-      max_num_seqs: 32           
-      gpu_memory_utilization: 0.5
-      max_model_len: 262144      
-      kv_cache_dtype: "auto"     
-      chat-template-kwargs: '{"preserve_thinking": true}'
-      speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
+      max_num_seqs: 8
+      gpu_memory_utilization: 0.45
+      max_model_len: 262144
+      kv_cache_dtype: "auto"
+      chat_template_kwargs: '{"enable_thinking": false}'
+    #  speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
       language_model_only: true
+
+  - name: "qwen35-27b"
+    enabled: false
+    hf_name: "Qwen/Qwen3.5-27B-FP8"
+    parser_profile: "qwen3"
+    gpu_ids: ["1"]
+    vllm:
+      tensor_parallel_size: 1
+      max_num_seqs: 8
+      gpu_memory_utilization: 0.45
+      max_model_len: 262144
+      kv_cache_dtype: "auto"
+      chat_template_kwargs: '{"enable_thinking": false}'
+   #   speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
+      language_model_only: true
+
+  - name: "qwen36-27b"
+    enabled: false
+    hf_name: "Qwen/Qwen3.6-27B-FP8"
+    parser_profile: "qwen3"
+    gpu_ids: ["1"]
+    vllm:
+      tensor_parallel_size: 1
+      max_num_seqs: 8
+      gpu_memory_utilization: 0.45
+      max_model_len: 262144
+      kv_cache_dtype: "auto"
+      chat_template_kwargs: '{"enable_thinking": false}'
+   #   speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
+      language_model_only: true
+
+  - name: "qwen35-9b"
+    enabled: false
+    gpu_ids: ["1"]
+    parser_profile: "qwen3"
+    hf_name: "Qwen/Qwen3.5-9B"
+    vllm:
+      gpu_memory_utilization: 0.45
+      max_model_len: 262144
+      kv_cache_dtype: "auto"
+      chat_template_kwargs: '{"enable_thinking": false}'      
+
+
+  - name: "qwen35-4b"
+    enabled: false
+    gpu_ids: ["0"]
+    parser_profile: "qwen3"
+    hf_name: "Qwen/Qwen3.5-4B"
+    vllm:
+      gpu_memory_utilization: 0.45
+      max_model_len: 262144
+      kv_cache_dtype: "auto"
+      chat_template_kwargs: '{"enable_thinking": false}'
+
+  - name: "qwen35-2b"
+    enabled: false
+    gpu_ids: ["1"]
+    parser_profile: "qwen3"
+    hf_name: "Qwen/Qwen3.5-2B"
+    vllm:
+      gpu_memory_utilization: 0.45
+      max_model_len: 262144
+      kv_cache_dtype: "auto"
+      chat_template_kwargs: '{"enable_thinking": false}'
+
+  - name: "qwen35-08b"
+    enabled: false
+    gpu_ids: ["0"]
+    parser_profile: "qwen3"
+    hf_name: "Qwen/Qwen3.5-0.8B"
+    vllm:
+      gpu_memory_utilization: 0.35
+      max_model_len: 262144
+      kv_cache_dtype: "auto"
+      chat_template_kwargs: '{"enable_thinking": false}'
+  
+
 
   - name: "qwen36-27b-multi"
     enabled: true
@@ -82,17 +197,15 @@ models:
       tensor_parallel_size: 1
       max_num_seqs: 1          
       max_model_len: 16384      
-      chat-template-kwargs: '{"enable_thinking": false}'
-      default_chat_template_kwargs: '{"enable_thinking": false}'
       enable_prefix_caching: true
-      speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'
+ #     speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'
       trust_remote_code: true
       limit_mm_per_prompt: '{"image": 4, "video": 0, "audio": 0}'
       #max_num_batched_tokens: 16384
       
 
   - name: "nemotron-3-nano-omni"
-    enabled: true
+    enabled: false
     hf_name: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8" 
     parser_profile: "nemotron_v3" 
     gpu_ids: ["1"]
@@ -100,8 +213,6 @@ models:
       gpu_memory_utilization: 0.5
       tensor_parallel_size: 1
       max_model_len: 16384      
-      chat-template-kwargs: '{"enable_thinking": false}'
-      default_chat_template_kwargs: '{"enable_thinking": false}'
       trust_remote_code: true
       video_pruning_rate: 0.5
       max_num_seqs: 1
@@ -117,7 +228,6 @@ models:
       tensor_parallel_size: 1
       max_model_len: 16384      
       enable_auto_tool_choice: true
-      chat-template-kwargs: '{"enable_thinking": false}'
       trust_remote_code: true
       async_scheduling: true
       video_pruning_rate: 0.5
@@ -130,80 +240,28 @@ models:
       limit_mm_per_prompt: '{"image": 4, "video": 1}'
 
 
-  - name: "qwen35-9b"
-    enabled: false
-    gpu_ids: ["0"]
-    parser_profile: "qwen3"
-    hf_name: "Qwen/Qwen3.5-9B"
-    vllm:
-      gpu_memory_utilization: 0.15
-      max_model_len: 262144
-      kv_cache_dtype: "auto"     
-      reasoning_parser: "qwen3" # Aktiviert die Thinking-Logik für 9B
-
-  - name: "qwen35-4b"
-    enabled: false
-    gpu_ids: ["1"]
-    parser_profile: "qwen3"
-    hf_name: "Qwen/Qwen3.5-4B"
-    vllm:
-      gpu_memory_utilization: 0.10
-      max_model_len: 262144
-      kv_cache_dtype: "auto"     
-      reasoning_parser: "qwen3"
-
-  - name: "qwen35-2b"
-    enabled: false
-    gpu_ids: ["1"]
-    parser_profile: "qwen3" 
-    hf_name: "Qwen/Qwen3.5-2B"
-    vllm:
-      gpu_memory_utilization: 0.15
-      max_model_len: 262144
-      kv_cache_dtype: "auto"   
-
-  - name: "qwen35-08b"
-    enabled: false
-    gpu_ids: ["1"]
-    parser_profile: "qwen3"  
-    hf_name: "Qwen/Qwen3.5-0.8B"
-    vllm:
-      gpu_memory_utilization: 0.1
-      max_model_len: 262144
-      kv_cache_dtype: "auto"   
 
 
 
-  - name: "qwen35-122b-fp8"
-    enabled: false
-    hf_name: "Qwen/Qwen3.5-122B-A10B-FP8"
-    gpu_ids: ["0"]
-    parser_profile: "qwen3"
-    vllm:
-      max_num_seqs: 4
-      max_model_len: 65536
-      language_model_only: true
-      max_num_batched_tokens: 12288
-      kv_cache_dtype: "fp8"
-      calculate_kv_scales: true
+
+
 
 
   - name: "qwen36-35b-a3b"
     enabled: false
-    hf_name: "Qwen/Qwen3.6-35B-A3B" 
+    hf_name: "Qwen/Qwen3.6-35B-A3B"
     parser_profile: "qwen3"
     gpu_ids: ["0"]
     vllm:
       tensor_parallel_size: 1
       max_num_seqs: 16
       gpu_memory_utilization: 0.85
-      max_model_len: 262144 
+      max_model_len: 262144
       language_model_only: false
-      
       kv_cache_dtype: "fp8"
       calculate_kv_scales: true
-      chat-template-kwargs: '{"preserve_thinking": true}'
-      speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
+      chat_template_kwargs: '{"enable_thinking": false}'
+    #  speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
 
 
   # - name: "gemma4-31b-it"
@@ -226,20 +284,22 @@ models:
       max_num_batched_tokens: 65536
       kv_cache_dtype: "fp8"
       calculate_kv_scales: true
+      chat_template_kwargs: '{"enable_thinking": false}'
 
 
-  - name: "Qwen3.5-27B-FP8"
-    enabled: false
-    hf_name: "Qwen/Qwen3.5-27B-FP8"
-    gpu_ids: ["1"]
-    parser_profile: "qwen3"
-    vllm:
-      gpu_memory_utilization: 0.35
-      max_num_seqs: 4
-      language_model_only: true
-      max_num_batched_tokens: 12288
-      kv_cache_dtype: "fp8"
-      calculate_kv_scales: true
+  # - name: "Qwen3.5-27B-FP8"
+  #   enabled: true
+  #   hf_name: "Qwen/Qwen3.5-27B-FP8"
+  #   gpu_ids: ["1"]
+  #   parser_profile: "qwen3"
+  #   vllm:
+  #     gpu_memory_utilization: 0.35
+  #     max_num_seqs: 4
+  #     language_model_only: true
+  #     max_num_batched_tokens: 12288
+  #     kv_cache_dtype: "fp8"
+  #     calculate_kv_scales: true
+  #     chat_template_kwargs: '{"enable_thinking": false}'
 
 
   - name: "NVIDIA-Nemotron-3-Super-120B-A12B-FP8"
@@ -321,7 +381,7 @@ models:
   - name: "qwen3-reranker-4b"
     enabled: true
     hf_name: "Qwen/Qwen3-Reranker-4B"
-    gpu_ids: ["0"]
+    gpu_ids: ["1"]
     host_port: 8003
     vllm:
       tensor_parallel_size: 1
@@ -341,6 +401,79 @@ models:
       - "{{ deploy_dir }}/models/chat_templates:/app/chat_templates:ro"
 
 
+# ── STT Service (speaches / faster-whisper) ──────────────────────────────────
+stt_service:
+  container_name: "faster-whisper"
+  image: "ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cuda-12.6.3"
+  internal_port: 8010
+  container_port: 8000
+  litellm_name: "whisper-1"
+  litellm_model: "openai/whisper-1"
+  healthcheck_path: "/health"
+  gpu_devices: ["1"]
+  volumes:
+    - "{{ deploy_dir }}/models/hf_cache:/home/ubuntu/.cache/huggingface"
+  environment:
+    - "PRELOAD_MODELS=[\"Systran/faster-whisper-large-v3\"]"
+    - "WHISPER__INFERENCE_DEVICE=cuda"
+    - "WHISPER__COMPUTE_TYPE=float16"
+    - "STT_MODEL_TTL=-1"
+
+# ── TTS Service (openedai-speech / Piper + XTTS) ─────────────────────────────
+# Image ":0.18.2" ships both Piper (CPU, tts-1) and Coqui XTTS v2 (GPU, tts-1-hd).
+# XTTS weights (~2 GB) are downloaded by Coqui on first request and cached under
+# TTS_HOME=/app/voices/tts, which persists in the mounted piper volume.
+tts_service:
+  container_name: "openedai-speech"
+  image: "ghcr.io/matatonic/openedai-speech:0.18.2"
+  internal_port: 8011
+  container_port: 8000
+  litellm_name: "tts-1"
+  litellm_model: "openai/tts-1"
+  litellm_name_hd: "tts-1-hd"
+  litellm_model_hd: "openai/tts-1-hd"
+  healthcheck_path: "/health"
+  gpu_devices: ["1"]
+  volumes:
+    # Piper models go to a dedicated mount to avoid overwriting /app/voices
+    # — that directory ships with speaker WAVs (alloy/echo/fable/nova/onyx/
+    # shimmer) used by XTTS for voice cloning.
+    - "{{ deploy_dir }}/models/piper:/app/piper:ro"
+    - "{{ deploy_dir }}/models/piper/voice_to_speaker.yaml:/app/config/voice_to_speaker.yaml"
+    # Persist XTTS weights across container recreates
+    - "{{ deploy_dir }}/models/xtts_cache:/root/.local/share/tts"
+  environment:
+    # Accept Coqui XTTS v2 non-commercial licence non-interactively
+    - "COQUI_TOS_AGREED=1"
+  voices:
+    # Piper ONNX models — HuggingFace base: rhasspy/piper-voices v1.0.0
+    # Format: voice name → filename + HF path (de/de_DE/thorsten/high/...)
+    - filename: "de_DE-thorsten-high"
+      path: "de/de_DE/thorsten/high"
+    - filename: "de_DE-thorsten_emotional-medium"
+      path: "de/de_DE/thorsten_emotional/medium"
+    - filename: "de_DE-kerstin-low"
+      path: "de/de_DE/kerstin/low"
+    - filename: "en_US-lessac-high"
+      path: "en/en_US/lessac/high"
+  # Coqui XTTS v2 — speaker_wav is a path to a reference WAV inside the
+  # container. /app/voices/*.wav ships with the matatonic image (alloy.wav,
+  # echo.wav, fable.wav, nova.wav, onyx.wav, shimmer.wav — all English
+  # samples). XTTS clones the voice timbre and renders German with a slight
+  # accent. Swap to a German reference sample later for best quality.
+  xtts_voices:
+    - name: "alloy"
+      speaker_wav: "voices/nova.wav"
+      language: "de"
+    - name: "nova"
+      speaker_wav: "voices/shimmer.wav"
+      language: "de"
+    - name: "shimmer"
+      speaker_wav: "voices/shimmer.wav"
+      language: "en"
+    - name: "onyx"
+      speaker_wav: "voices/onyx.wav"
+      language: "en"
 
 # Image versions
 litellm_image: "ghcr.io/berriai/litellm:v1.83.14-stable.patch.2"
