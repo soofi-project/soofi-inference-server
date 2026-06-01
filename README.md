@@ -359,3 +359,11 @@ To switch models, set the old entry to `enabled: false`, set the new one to `ena
 | Driver | `590-server-open` | Open kernel modules optimized for H200 GSP |
 | Compute lib | `libnvidia-compute-590-server` | Avoids version conflicts with Fabric Manager |
 | Fabric Manager | `nvidia-fabricmanager-590` | Required for HBM3e init on Hopper |
+
+## About Soofi
+Soofi website: www.soofi.info
+
+![Förderlogo](Förderlogo.jpg)
+The creation and maintenance of this code is funded through the IPCEI-CIS program. The funding authority is the German Federal Ministry for Economic Affairs and Energy.
+Funding-ID: 13IPC040A
+
