@@ -374,6 +374,31 @@ models:
 
   
 
+  # ── Soofi Nano 30B-A3B (built from scratch with the Nemotron pipeline, NOT HF) ─
+  # In-house weights using the Nemotron-H architecture (model_type: nemotron_h) —
+  # NOT an NVIDIA fine-tune. Loading is identical (NemotronHForCausalLM).
+  # → Serve PLAIN first, inspect the output, then enable the parser if it fits.
+  #   If the model emits DeepSeek-R1-style <think>…</think> markup, the built-in
+  #   nemotron_v3 profile parses it (no plugin needed) — uncomment the line below.
+  # hf_name is the CONTAINER-INTERNAL path → vLLM loads locally instead of from HF.
+  - name: "soofi-nano-30b"
+    enabled: true
+    hf_name: "/models/soofi-nano-30b"        # = mount target below (a path, NOT an HF repo)
+    gpu_ids: ["1"]
+    # parser_profile: "nemotron_v3"          # OPT-IN: only if the model emits <think> reasoning markup
+    vllm:
+      tensor_parallel_size: 1
+      gpu_memory_utilization: 0.6            # GPU 1; lower on OOM (shares the GPU with STT/TTS)
+      max_model_len: 262144                  # 256k default; reduce on OOM
+      max_num_seqs: 8
+      dtype: "auto"                           # checkpoint is BF16
+      enable_prefix_caching: false           # SSM/Mamba state — disabled to be safe
+      enable_chunked_prefill: false
+      trust_remote_code: true                # uses the bundled modeling_nemotron_h.py
+    extraVolumes:
+      # Host path → container path (read-only). Adjust the host path if needed (see below).
+      - "{{ deploy_dir }}/models/soofi-nano-30b:/models/soofi-nano-30b:ro"
+
   # ── Reranker (Qwen3, cross-encoder via vLLM score task, GPU 1, ~8 GB) ──────
   # enable_prefix_caching / enable_chunked_prefill are explicitly disabled —
   # vLLM does not officially support them for pooling models and they can
