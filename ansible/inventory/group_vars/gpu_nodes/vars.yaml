@@ -283,8 +283,11 @@ models:
       enable_chunked_prefill: false
       trust_remote_code: true                # uses the bundled modeling_nemotron_h.py
     extraVolumes:
-      # Host path → container path (read-only). Adjust the host path if needed (see below).
-      - "{{ deploy_dir }}/models/soofi-nano-30b:/models/soofi-nano-30b:ro"
+      # Host path → container path (read-only). The weights live in the deploy
+      # user's home on the cluster (ansible_user resolves to /home/mrk here), so
+      # no relocation into deploy_dir is needed. ~ does NOT expand in bind mounts,
+      # hence the absolute /home/{{ ansible_user }} form.
+      - "/home/{{ ansible_user }}/models/sft_Soofi_Nano_30B_A3B_nemotron_posttrain_v3_em_v2_cleaned_bridge_nosymblink/iter_0000600:/models/soofi-nano-30b:ro"
 
   # ── Reranker (Qwen3, cross-encoder via vLLM score task, GPU 1, ~8 GB) ──────
   # enable_prefix_caching / enable_chunked_prefill are explicitly disabled —
