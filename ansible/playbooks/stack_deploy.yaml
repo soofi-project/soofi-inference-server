@@ -97,7 +97,7 @@
     - name: Hint — monitor download progress in a separate terminal
       ansible.builtin.debug:
         msg: "To monitor download progress: ssh {{ ansible_user }}@{{ ansible_host }} 'docker logs -f $(docker ps -lq)'"
-      when: model_caches.results | selectattr('matched', 'equalto', 0) | list | length > 0
+      when: (model_caches.results | default([])) | selectattr('matched', 'equalto', 0) | list | length > 0
 
     - name: Download model weights from HuggingFace
       ansible.builtin.command:
@@ -112,8 +112,8 @@
           {% endif %}
           {{ item.item.repository | default(vllm_defaults.repository) }}:{{ item.item.tag | default(vllm_defaults.tag) }}
           download {{ item.item.hf_name }}
-      when: item.matched == 0
-      loop: "{{ model_caches.results }}"
+      when: item.matched == 0 and not (item.item.is_local | default(false))
+      loop: "{{ model_caches.results | default([]) }}"
       loop_control:
         label: "{{ item.item.hf_name }}"
       async: 7200
@@ -136,6 +136,13 @@
       loop_control:
         label: "{{ item.path | basename }}"
       when: incomplete_files.files | length > 0
+
+    - name: Ensure HF cache is writable by all containers
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}/models/hf_cache"
+        mode: "a+rwX"
+        recurse: true
+      when: (model_caches.results | default([])) | selectattr('matched', 'equalto', 0) | list | length > 0
 
     # ── 4. TTS assets (Piper voice models + XTTS cache) ──────────────────────
     - name: Create TTS model directories
@@ -181,16 +188,6 @@
         group: "{{ ansible_user }}"
         mode: "0644"
       when: tts_service is defined
-
-    # ── 5. HF cache permissions ──────────────────────────────────────────────
-    # vLLM runs as root, speaches as uid 1000 (ubuntu). Both need write access
-    # to the shared HF cache. Use mode 0777 so both users can read/write.
-    - name: Ensure HF cache is writable by all containers
-      ansible.builtin.file:
-        path: "{{ deploy_dir }}/models/hf_cache"
-        mode: "a+rwX"
-        recurse: true
-      when: model_caches.results | selectattr('matched', 'equalto', 0) | list | length > 0
 
     # ── 6. Reset Open WebUI when auth setting changes ─────────────────────────
     # Old user/session data in the volume blocks access when auth is toggled.

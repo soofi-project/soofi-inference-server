@@ -188,7 +188,7 @@ models:
 
 
   - name: "qwen36-27b-multi"
-    enabled: true
+    enabled: false
     hf_name: "Qwen/Qwen3.6-27B-FP8"
     parser_profile: "qwen3"
     gpu_ids: ["1"]
@@ -238,9 +238,6 @@ models:
       mm_processor_kwargs: '{"max_soft_tokens": 560}'
       limit_mm_per_prompt_audio: 0
       limit_mm_per_prompt: '{"image": 4, "video": 1}'
-
-
-
 
 
 
@@ -383,9 +380,10 @@ models:
   # hf_name is the CONTAINER-INTERNAL path → vLLM loads locally instead of from HF.
   - name: "soofi-nano-30b"
     enabled: true
+    is_local: true
     hf_name: "/models/soofi-nano-30b"        # = mount target below (a path, NOT an HF repo)
     gpu_ids: ["1"]
-    # parser_profile: "nemotron_v3"          # OPT-IN: only if the model emits <think> reasoning markup
+    # parser_profile: "nemotron_v3"          # OPT-IN: only if the model emits  reasoning markup
     vllm:
       tensor_parallel_size: 1
       gpu_memory_utilization: 0.6            # GPU 1; lower on OOM (shares the GPU with STT/TTS)
@@ -396,11 +394,7 @@ models:
       enable_chunked_prefill: false
       trust_remote_code: true                # uses the bundled modeling_nemotron_h.py
     extraVolumes:
-      # Host path → container path (read-only). The weights live in the deploy
-      # user's home on the cluster (ansible_user resolves to /home/mrk here), so
-      # no relocation into deploy_dir is needed. ~ does NOT expand in bind mounts,
-      # hence the absolute /home/{{ ansible_user }} form.
-      - "/home/{{ ansible_user }}/models/sft_Soofi_Nano_30B_A3B_nemotron_posttrain_v3_em_v2_cleaned_bridge_nosymblink/iter_0000600:/models/soofi-nano-30b:ro"
+      - "/opt/soofi/models/local/Soofi_Nano_V3_30B_A3B/iter_0000600:/models/soofi-nano-30b:ro"
 
   # ── Reranker (Qwen3, cross-encoder via vLLM score task, GPU 1, ~8 GB) ──────
   # enable_prefix_caching / enable_chunked_prefill are explicitly disabled —
