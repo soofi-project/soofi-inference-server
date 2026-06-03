@@ -121,6 +121,10 @@ services:
       - "--reasoning-parser"
       - {{ parser.reasoning_parser | tojson }}
 {% endif %}
+{% if cfg.reasoning_parser_plugin is defined %}
+      - "--reasoning-parser-plugin"
+      - {{ cfg.reasoning_parser_plugin | tojson }}
+{% endif %}
 {% if cfg.max_num_seqs is defined %}
       - "--max-num-seqs"
       - "{{ cfg.max_num_seqs }}"

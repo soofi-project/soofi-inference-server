@@ -8,8 +8,7 @@ to appear as plain text on the second conversation turn.
 | Parser | Use for |
 |---|---|
 | `qwen3_xml` | Qwen3 / Qwen3.5 / Qwen3.6 Instruct and MoE models |
-| `qwen3_xml` | NVIDIA Nemotron-3 (Qwen3-based architecture) |
-| `qwen3_coder` | Qwen3-Coder variants only |
+| `qwen3_coder` | Qwen3-Coder variants, NVIDIA Nemotron-3 (uses `肇`/`uito` + `<function>` format) |
 
 Instruct and Coder models emit tool calls in different formats. Mixing them up breaks
 multi-turn tool use: turn 1 may work by accident, turn 2 always fails.
@@ -45,6 +44,7 @@ With `enable_thinking: false` in `chat_template_kwargs` this is a no-op but harm
 | Parser | Use for |
 |---|---|
 | `qwen3` | Qwen3 / Qwen3.5 / Qwen3.6 |
-| `nemotron_v3` | NVIDIA Nemotron v3 |
+| `nano_v3` | NVIDIA Nemotron-3 Nano (requires `reasoning_parser_plugin`) |
+| `nemotron_v3` | NVIDIA Nemotron v3 (legacy) |
 | `minimax_m2_append_think` | MiniMax M2 |
 | `gemma4` | Gemma 4 |

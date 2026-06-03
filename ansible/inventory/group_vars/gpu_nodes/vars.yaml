@@ -34,8 +34,8 @@ parser_profiles:
 
   nemotron_v3:
     enable_auto_tool_choice: true
-    tool_call_parser: "qwen3_xml"
-    reasoning_parser: "nemotron_v3"
+    tool_call_parser: "qwen3_coder"
+    reasoning_parser: "nano_v3"
 
   minimax_m2:
     enable_auto_tool_choice: true
@@ -383,7 +383,7 @@ models:
     is_local: true
     hf_name: "/models/soofi-nano-30b"        # = mount target below (a path, NOT an HF repo)
     gpu_ids: ["1"]
-    # parser_profile: "nemotron_v3"          # OPT-IN: only if the model emits  reasoning markup
+    parser_profile: "nemotron_v3"              # qwen3_coder tool parser + nano_v3 reasoning
     vllm:
       tensor_parallel_size: 1
       gpu_memory_utilization: 0.6            # GPU 1; lower on OOM (shares the GPU with STT/TTS)
@@ -393,6 +393,8 @@ models:
       enable_prefix_caching: false           # SSM/Mamba state — disabled to be safe
       enable_chunked_prefill: false
       trust_remote_code: true                # uses the bundled modeling_nemotron_h.py
+      reasoning_parser_plugin: "/models/soofi-nano-30b/nano_v3_reasoning_parser.py"
+      chat_template_kwargs: '{"enable_thinking": false}'
     extraVolumes:
       - "/opt/soofi/models/local/Soofi_Nano_V3_30B_A3B/iter_0000600:/models/soofi-nano-30b:ro"
 
