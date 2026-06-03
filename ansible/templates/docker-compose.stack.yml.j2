@@ -211,6 +211,51 @@ services:
 {% if tts_service is defined %}
 {{ render_service(tts_service) }}
 {% endif %}
+{% if docling_service is defined and docling_service.enabled | default(true) %}
+  # ===========================================================================
+  # {{ docling_service.container_name }}
+  # ===========================================================================
+  {{ docling_service.container_name }}:
+    build: {{ docling_service.build_context }}
+    container_name: {{ docling_service.container_name }}
+    restart: unless-stopped
+    init: true
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: {{ docling_service.gpu_devices | tojson }}
+              capabilities: [gpu]
+
+    ports:
+      - "{{ docling_service.internal_port }}:{{ docling_service.container_port }}"
+
+{% if docling_service.volumes is defined %}
+    volumes:
+{% for vol in docling_service.volumes %}
+      - {{ vol }}
+{% endfor %}
+
+{% endif %}
+{% if docling_service.environment is defined %}
+    environment:
+{% for env in docling_service.environment %}
+      - {{ env }}
+{% endfor %}
+
+{% endif %}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:{{ docling_service.container_port }}{{ docling_service.healthcheck_path | default('/health') }}"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+    networks:
+      - inference-net
+{% endif %}
   # ===========================================================================
   # LiteLLM Proxy — single external API endpoint for all models and services
   # ===========================================================================

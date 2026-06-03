@@ -228,9 +228,32 @@
         mode: "0644"
 
     # ── 7. Start stack ───────────────────────────────────────────────────────
+
+    # ── 6b. Docling GPU service ──────────────────────────────────────────────
+    - name: Create docling service directory
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}/docling-service"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+      when: docling_service is defined and docling_service.enabled | default(true)
+
+    - name: Deploy docling service files
+      ansible.builtin.copy:
+        src: "docling-service/{{ item }}"
+        dest: "{{ deploy_dir }}/docling-service/{{ item }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+      loop:
+        - Dockerfile
+        - app.py
+      when: docling_service is defined and docling_service.enabled | default(true)
+
     - name: Start inference stack
       ansible.builtin.command:
-        cmd: docker compose -f {{ deploy_dir }}/docker/docker-compose.yml up -d --remove-orphans
+        cmd: docker compose -f {{ deploy_dir }}/docker/docker-compose.yml up -d --build --remove-orphans
       register: compose_up
       changed_when: >
         'Started' in (compose_up.stderr | default('')) or
@@ -289,5 +312,6 @@
         msg:
           - "LiteLLM API: http://{{ ansible_host }}:{{ litellm_port | default(4000) }}/v1"
           - "Open WebUI:  http://{{ ansible_host }}:{{ webui_port | default(3000) }}"
+          - "Docling GPU: http://{{ ansible_host }}:{{ docling_service.internal_port | default(8020) }}/health"
           - "Deployed models: {{ (litellm_models.json.data | map(attribute='id') | list) if litellm_models.json is defined else '(skipped in check mode)' }}"
       when: active_models | length > 0

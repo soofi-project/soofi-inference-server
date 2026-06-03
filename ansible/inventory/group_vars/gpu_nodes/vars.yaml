@@ -475,6 +475,22 @@ tts_service:
       speaker_wav: "voices/onyx.wav"
       language: "en"
 
+# ── Docling GPU Service (PDF→Markdown, Vision Transformer on GPU) ──────────
+# Runs docling-layout-heron + tableformer-v2 on GPU 1 (~1-2 GB VRAM).
+# Used for benchmarking PDF conversion latency (CPU vs GPU).
+# Not registered in LiteLLM — accessed directly via port 8020.
+docling_service:
+  enabled: true
+  container_name: "docling-gpu"
+  build_context: "{{ deploy_dir }}/docling-service"
+  internal_port: 8020
+  container_port: 8000
+  healthcheck_path: "/health"
+  gpu_devices: ["1"]
+  environment:
+    - "DOCLING_DEVICE=cuda"
+    - "PDF_TABLE_STRUCTURE=true"
+
 # Image versions
 litellm_image: "ghcr.io/berriai/litellm:v1.83.14-stable.patch.2"
 webui_image: "ghcr.io/open-webui/open-webui:v0.8.10"
