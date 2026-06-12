@@ -2,6 +2,13 @@
 
 This folder provides Docker files for running the `tiiuae/Falcon-Perception` FastAPI inference server on NVIDIA GPUs.
 
+> **Ansible stack:** the production deployment on gpu-server-01 uses a pinned copy of
+> `Dockerfile.remote` at `docker/Dockerfile.falcon-perception`, built on the GPU host by
+> `stack_deploy.yaml` and configured via the `falcon_perception_service` block in
+> `ansible/inventory/group_vars/gpu_nodes/vars.yaml` (host port 8004, not in LiteLLM).
+> This folder remains for local/standalone use; when upgrading, bump `REPO_REF` in the
+> pinned Dockerfile and the image tag in vars.yaml together.
+
 ## Prerequisites
 
 - Docker with NVIDIA Container Toolkit enabled.

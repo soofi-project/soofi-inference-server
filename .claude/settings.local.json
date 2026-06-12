@@ -24,7 +24,12 @@
       "WebFetch(domain:huggingface.co)",
       "Bash(python3 *)",
       "Bash(command -v ansible-playbook)",
-      "Bash(ansible-playbook --syntax-check -i ansible/inventory/hosts.yaml ansible/playbooks/stack_deploy.yaml)"
+      "Bash(ansible-playbook --syntax-check -i ansible/inventory/hosts.yaml ansible/playbooks/stack_deploy.yaml)",
+      "Bash(git -C /home/fabio/dev/soofi-inference-server show HEAD:CLAUDE.md)",
+      "Bash(git -C /home/fabio/dev/soofi-inference-server status --short)",
+      "Bash(git -C /home/fabio/dev/soofi-inference-server log --oneline -5 feature/falcon-perception)",
+      "Bash(git -C /home/fabio/dev/soofi-inference-server diff CLAUDE.md ansible/inventory/group_vars/gpu_nodes/vars.yaml)",
+      "Bash(git *)"
     ]
   }
 }

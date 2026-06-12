@@ -62,18 +62,26 @@
         mode: "0644"
       register: litellm_config
 
-    # ── 2b. Custom vLLM images ────────────────────────────────────────────────
+    # ── 2b. Custom images ─────────────────────────────────────────────────────
     # Some models need vLLM plugins missing from the stock image (e.g. Cosmos3's
-    # vllm-cosmos3 architecture plugin). Their images are built on the host from
-    # docker/Dockerfile.* — only when an enabled model references them. Must run
-    # before the model pre-download, which uses the model's image as hf client.
-    - name: Select custom images referenced by enabled models
+    # vllm-cosmos3 architecture plugin) and some services have no upstream image
+    # at all (Falcon-Perception). Their images are built on the host from
+    # docker/Dockerfile.* — only when an enabled model or a service block
+    # references them. Must run before the model pre-download, which uses the
+    # model's image as hf client.
+    # Service blocks reference images as "repo:tag" strings — strip the tag so
+    # they match custom_images the same way model repositories do.
+    - name: Select custom images referenced by enabled models or services
       ansible.builtin.set_fact:
         active_custom_images: >-
           {{ custom_images | default([])
              | selectattr('repository', 'in',
-                          active_models | selectattr('repository', 'defined')
-                                        | map(attribute='repository') | list)
+                          (active_models | selectattr('repository', 'defined')
+                                         | map(attribute='repository') | list)
+                          + ([stt_service.image | default(''),
+                              tts_service.image | default(''),
+                              falcon_perception_service.image | default('')]
+                             | select() | map('regex_replace', ':[^:]*$', '') | list))
              | list }}
 
     - name: Copy Dockerfiles for custom images
@@ -87,7 +95,7 @@
       loop_control:
         label: "{{ item.dockerfile }}"
 
-    - name: Build custom vLLM images (layer-cached after first run)
+    - name: Build custom images (layer-cached after first run)
       ansible.builtin.command:
         cmd: >-
           docker build
@@ -175,6 +183,45 @@
       loop_control:
         label: "{{ item.path | basename }}"
       when: incomplete_files.files | length > 0
+
+    # ── 3b. Falcon-Perception assets ──────────────────────────────────────────
+    # Same pre-download rationale as step 3, which is vLLM-specific (it derives
+    # hf_name and the hf client image from model entries). The falcon image
+    # bundles the hf CLI and sets HF_HOME=/models/huggingface.
+    - name: Create Falcon-Perception compile cache directory
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}/models/falcon_perception_cache"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+      when: falcon_perception_service is defined
+
+    - name: Check if Falcon-Perception weights are already cached
+      ansible.builtin.find:
+        paths: "{{ deploy_dir }}/models/hf_cache/hub/models--{{ falcon_perception_service.hf_name | replace('/', '--') }}/snapshots"
+        file_type: directory
+        recurse: false
+      register: falcon_cache
+      failed_when: false
+      when: falcon_perception_service is defined
+
+    - name: Download Falcon-Perception weights from HuggingFace
+      ansible.builtin.command:
+        cmd: >-
+          docker run --rm
+          --entrypoint hf
+          -v {{ deploy_dir }}/models/hf_cache:/models/huggingface
+          {% if hf_token | default('') | regex_search('^hf_') %}
+          -e HF_TOKEN={{ hf_token }}
+          -e HUGGING_FACE_HUB_TOKEN={{ hf_token }}
+          {% endif %}
+          {{ falcon_perception_service.image }}
+          download {{ falcon_perception_service.hf_name }}
+      when: falcon_perception_service is defined and (falcon_cache.matched | default(0)) == 0
+      async: 7200
+      poll: 30
+      changed_when: true
 
     # ── 4. TTS assets (Piper voice models + XTTS cache) ──────────────────────
     - name: Create TTS model directories

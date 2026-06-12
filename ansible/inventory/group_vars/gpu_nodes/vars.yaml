@@ -20,13 +20,18 @@ vllm_defaults:
     enable_prefix_caching: true
     enable_chunked_prefill: true
 
-# Custom vLLM images — built on the GPU host by stack_deploy.yaml before the
-# stack starts, but only when an enabled model references them via repository/tag.
-# Dockerfiles live in docker/ at the repo root.
+# Custom images — built on the GPU host by stack_deploy.yaml before the stack
+# starts, but only when an enabled model (via repository/tag) or a service
+# block (via image) references them. Dockerfiles live in docker/ at the repo root.
 custom_images:
   - repository: "soofi/vllm-openai-cosmos3"
     tag: "v0.21.0"
     dockerfile: "Dockerfile.vllm-cosmos3"
+  # Falcon-Perception FastAPI server — tag mirrors the upstream REPO_REF pinned
+  # in the Dockerfile; bump both together to upgrade.
+  - repository: "soofi/falcon-perception"
+    tag: "v1.0.0"
+    dockerfile: "Dockerfile.falcon-perception"
 
 # Shared parser/tooling presets for model families.
 parser_profiles:
@@ -220,7 +225,7 @@ models:
   # (docker/Dockerfile.vllm-cosmos3, see custom_images above). Reasoner flags
   # follow the Cosmos3 cookbook. BF16 only — FP8/FP4 are unsupported.
   - name: "cosmos-3-nano"
-    enabled: true
+    enabled: false
     hf_name: "nvidia/Cosmos3-Nano"
     repository: "soofi/vllm-openai-cosmos3"
     tag: "v0.21.0"
@@ -241,7 +246,7 @@ models:
 
 
   - name: "nemotron-3-nano-omni"
-    enabled: true
+    enabled: false
     hf_name: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8" 
     parser_profile: "nemotron_v3" 
     gpu_ids: ["1"]
@@ -438,6 +443,51 @@ models:
       - "{{ deploy_dir }}/models/chat_templates:/app/chat_templates:ro"
 
 
+# ── STT Service (speaches / faster-whisper) ──────────────────────────────────
+stt_service:
+  container_name: "faster-whisper"
+  image: "ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cuda-12.6.3"
+  internal_port: 8010
+  container_port: 8000
+  litellm_name: "whisper-1"
+  litellm_model: "openai/whisper-1"
+  healthcheck_path: "/health"
+  gpu_devices: ["1"]
+  volumes:
+    - "{{ deploy_dir }}/models/hf_cache:/home/ubuntu/.cache/huggingface"
+  environment:
+    - "PRELOAD_MODELS=[\"Systran/faster-whisper-large-v3\"]"
+    - "WHISPER__INFERENCE_DEVICE=cuda"
+    - "WHISPER__COMPUTE_TYPE=float16"
+    - "STT_MODEL_TTL=-1"
+
+# ── Falcon-Perception (FastAPI vision server, own /v1/predictions API) ───────
+# Not OpenAI-compatible — NOT registered in LiteLLM and no litellm depends_on;
+# reached directly via the host port, like the reranker. Image is built on the
+# GPU host (see custom_images). First start compiles the model (torch.compile +
+# CUDA graphs) which can take ~15 min — hence the healthcheck overrides; the
+# /cache volume persists compile artifacts so restarts are fast. Comment out
+# the whole block to disable. GPU 0: reranker uses 0.15, cosmos 0.5 when
+# enabled — check nvidia-smi headroom before enabling alongside more models.
+falcon_perception_service:
+  container_name: "falcon-perception"
+  image: "soofi/falcon-perception:v1.0.0"
+  hf_name: "tiiuae/Falcon-Perception"
+  internal_port: 8004
+  container_port: 7860
+  healthcheck_path: "/v1/health"
+  healthcheck_start_period: "900s"
+  healthcheck_retries: 40
+  shm_size: "16gb"
+  gpu_devices: ["0"]
+  volumes:
+    - "{{ deploy_dir }}/models/hf_cache:/models/huggingface"          # image sets HF_HOME here
+    - "{{ deploy_dir }}/models/falcon_perception_cache:/cache"        # torchinductor/triton compile caches
+  environment:
+    - "HF_MODEL_ID=tiiuae/Falcon-Perception"
+    - "DTYPE=bfloat16"
+    - "NUM_GPUS=1"
+    - "HF_TOKEN={{ hf_token }}"
 
 # Image versions
 litellm_image: "ghcr.io/berriai/litellm:v1.83.14-stable.patch.2"
