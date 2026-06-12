@@ -1,0 +1,13 @@
+# vLLM OpenAI image + NVIDIA vllm-cosmos3 plugin — required for nvidia/Cosmos3-*
+# reasoner models (registers the Cosmos3ReasonerForConditionalGeneration
+# architecture that --hf-overrides points at).
+# Built on the GPU host by stack_deploy.yaml — see custom_images in
+# ansible/inventory/group_vars/gpu_nodes/vars.yaml.
+# Ref: https://github.com/NVIDIA/cosmos/blob/main/cookbooks/cosmos3/README.md#start-the-server
+FROM vllm/vllm-openai:v0.21.0
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/* \
+    && uv pip install --system \
+       "vllm-cosmos3 @ git+https://github.com/NVIDIA/cosmos-framework.git#subdirectory=packages/vllm-cosmos3"

@@ -24,6 +24,7 @@ soofi-inference-server/
 │   └── 05-open-webui-setup.md   # Open WebUI + LiteLLM
 ├── docker/
 │   ├── Dockerfile.ansible       # Ansible runner container
+│   ├── Dockerfile.vllm-cosmos3  # vLLM + Cosmos3 plugin (built on host by stack_deploy)
 │   ├── docker-compose.yml       # Full Stack (Triton + LiteLLM + Open WebUI)
 │   ├── litellm-config.yaml      # LiteLLM Proxy Configuration
 │   └── .env.example             # Environment Variables
