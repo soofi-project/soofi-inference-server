@@ -47,8 +47,8 @@ parser_profiles:
 
   nemotron_v3:
     enable_auto_tool_choice: true
-    tool_call_parser: "qwen3_xml"
-    reasoning_parser: "nemotron_v3"
+    tool_call_parser: "qwen3_coder"
+    reasoning_parser: "nano_v3"
 
   minimax_m2:
     enable_auto_tool_choice: true
@@ -203,7 +203,7 @@ models:
   
 
   - name: "qwen36-27b-multi"
-    enabled: true
+    enabled: false
     hf_name: "Qwen/Qwen3.6-27B-FP8"
     parser_profile: "qwen3"
     gpu_ids: ["1"]
@@ -416,6 +416,33 @@ models:
 
   
 
+  # ── Soofi Nano 30B-A3B (built from scratch with the Nemotron pipeline, NOT HF) ─
+  # In-house weights using the Nemotron-H architecture (model_type: nemotron_h) —
+  # NOT an NVIDIA fine-tune. Loading is identical (NemotronHForCausalLM).
+  # → Serve PLAIN first, inspect the output, then enable the parser if it fits.
+  #   If the model emits DeepSeek-R1-style <think>…</think> markup, the built-in
+  #   nemotron_v3 profile parses it (no plugin needed) — uncomment the line below.
+  # hf_name is the CONTAINER-INTERNAL path → vLLM loads locally instead of from HF.
+  - name: "soofi-nano-30b"
+    enabled: true
+    is_local: true
+    hf_name: "/models/soofi-nano-30b"        # = mount target below (a path, NOT an HF repo)
+    gpu_ids: ["1"]
+    parser_profile: "nemotron_v3"              # qwen3_coder tool parser + nano_v3 reasoning
+    vllm:
+      tensor_parallel_size: 1
+      gpu_memory_utilization: 0.6            # GPU 1; lower on OOM (shares the GPU with STT/TTS)
+      max_model_len: 262144                  # 256k default; reduce on OOM
+      max_num_seqs: 8
+      dtype: "auto"                           # checkpoint is BF16
+      enable_prefix_caching: false           # SSM/Mamba state — disabled to be safe
+      enable_chunked_prefill: false
+      trust_remote_code: true                # uses the bundled modeling_nemotron_h.py
+      reasoning_parser_plugin: "/models/soofi-nano-30b/nano_v3_reasoning_parser.py"
+      chat_template_kwargs: '{"enable_thinking": false}'
+    extraVolumes:
+      - "/opt/soofi/models/local/Soofi_Nano_V3_30B_A3B/iter_0000600:/models/soofi-nano-30b:ro"
+
   # ── Reranker (Qwen3, cross-encoder via vLLM score task, GPU 1, ~8 GB) ──────
   # enable_prefix_caching / enable_chunked_prefill are explicitly disabled —
   # vLLM does not officially support them for pooling models and they can
@@ -489,6 +516,22 @@ falcon_perception_service:
     - "NUM_GPUS=1"
     - "HF_TOKEN={{ hf_token }}"
     - "TEMPERATURE=0.0"
+
+# ── Docling GPU Service (PDF→Markdown, Vision Transformer on GPU) ──────────
+# Runs docling-layout-heron + tableformer-v2 on GPU 1 (~1-2 GB VRAM).
+# Used for benchmarking PDF conversion latency (CPU vs GPU).
+# Not registered in LiteLLM — accessed directly via port 8020.
+docling_service:
+  enabled: true
+  container_name: "docling-gpu"
+  build_context: "{{ deploy_dir }}/docling-service"
+  internal_port: 8020
+  container_port: 8000
+  healthcheck_path: "/health"
+  gpu_devices: ["1"]
+  environment:
+    - "DOCLING_DEVICE=cuda"
+    - "PDF_TABLE_STRUCTURE=true"
 
 # Image versions
 litellm_image: "ghcr.io/berriai/litellm:v1.83.14-stable.patch.2"
