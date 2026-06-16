@@ -488,6 +488,7 @@ falcon_perception_service:
     - "DTYPE=bfloat16"
     - "NUM_GPUS=1"
     - "HF_TOKEN={{ hf_token }}"
+    - "TEMPERATURE=0.0"
 
 # Image versions
 litellm_image: "ghcr.io/berriai/litellm:v1.83.14-stable.patch.2"
