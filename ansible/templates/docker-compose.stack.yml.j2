@@ -223,6 +223,7 @@ services:
 {# Not OpenAI-compatible: no LiteLLM registration and no litellm depends_on —
    a depends_on would block LiteLLM startup behind a ~15 min model compile. #}
 {{ render_service(falcon_perception_service) }}
+{% endif %}
 {% if docling_service is defined and docling_service.enabled | default(true) %}
   # ===========================================================================
   # {{ docling_service.container_name }}
