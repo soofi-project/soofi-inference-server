@@ -48,7 +48,7 @@ parser_profiles:
   nemotron_v3:
     enable_auto_tool_choice: true
     tool_call_parser: "qwen3_coder"
-    reasoning_parser: "nano_v3"
+
 
   minimax_m2:
     enable_auto_tool_choice: true
@@ -414,7 +414,22 @@ models:
       - "3407"
 
 
+  - name: "NVIDIA-Nemotron-3-Nano-30B-A3B-FP8"
+    enabled: true
+    hf_name: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8"
+    gpu_ids: ["0"]
+    parser_profile: "nemotron_v3"
+    vllm:
+      gpu_memory_utilization: 0.35
+      max_model_len: 16000
+      enable_chunked_prefill: false
+      max_num_seqs: 8
+      trust_remote_code: true
+      reasoning_parser_plugin: "NVIDIA-Nemotron-3-Nano-30B-A3B-FP8/nano_v3_reasoning_parser.py"
+      reasoning_parser: "nano_v3"
+      kv_cache_dtype: "fp8"
   
+
 
   # ── Soofi Nano 30B-A3B (built from scratch with the Nemotron pipeline, NOT HF) ─
   # In-house weights using the Nemotron-H architecture (model_type: nemotron_h) —
@@ -424,7 +439,7 @@ models:
   #   nemotron_v3 profile parses it (no plugin needed) — uncomment the line below.
   # hf_name is the CONTAINER-INTERNAL path → vLLM loads locally instead of from HF.
   - name: "soofi-nano-30b"
-    enabled: true
+    enabled: false
     is_local: true
     hf_name: "/models/soofi-nano-30b"        # = mount target below (a path, NOT an HF repo)
     gpu_ids: ["0"]
