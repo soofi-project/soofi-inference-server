@@ -439,15 +439,16 @@ models:
   #   nemotron_v3 profile parses it (no plugin needed) — uncomment the line below.
   # hf_name is the CONTAINER-INTERNAL path → vLLM loads locally instead of from HF.
   - name: "soofi-nano-30b"
-    enabled: false
+    enabled: true
     is_local: true
     hf_name: "/models/soofi-nano-30b"        # = mount target below (a path, NOT an HF repo)
     gpu_ids: ["0"]
     parser_profile: "nemotron_v3"              # qwen3_coder tool parser + nano_v3 reasoning
     vllm:
+      reasoning_parser: "nano_v3"
       tensor_parallel_size: 1
-      gpu_memory_utilization: 0.6            # GPU 1; lower on OOM (shares the GPU with STT/TTS)
-      max_model_len: 262144                  # 256k default; reduce on OOM
+      gpu_memory_utilization: 0.5            # GPU 1; lower on OOM (shares the GPU with STT/TTS)
+      max_model_len: 64000                  # 256k default; reduce on OOM
       max_num_seqs: 8
       dtype: "auto"                           # checkpoint is BF16
       enable_prefix_caching: false           # SSM/Mamba state — disabled to be safe
@@ -463,7 +464,7 @@ models:
   # vLLM does not officially support them for pooling models and they can
   # cause failures or degraded scores. Overrides the global vllm_defaults.
   - name: "qwen3-reranker-4b"
-    enabled: true
+    enabled: false
     hf_name: "Qwen/Qwen3-Reranker-4B"
     gpu_ids: ["0"]
     host_port: 8003
@@ -537,7 +538,7 @@ falcon_perception_service:
 # Used for benchmarking PDF conversion latency (CPU vs GPU).
 # Not registered in LiteLLM — accessed directly via port 8020.
 docling_service:
-  enabled: true
+  enabled: false
   container_name: "docling-gpu"
   build_context: "{{ deploy_dir }}/docling-service"
   internal_port: 8020
