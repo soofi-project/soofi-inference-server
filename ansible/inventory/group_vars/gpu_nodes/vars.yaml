@@ -203,7 +203,7 @@ models:
   
 
   - name: "qwen36-27b-multi"
-    enabled: false
+    enabled: true
     hf_name: "Qwen/Qwen3.6-27B-FP8"
     parser_profile: "qwen3"
     gpu_ids: ["1"]
@@ -427,7 +427,7 @@ models:
     enabled: true
     is_local: true
     hf_name: "/models/soofi-nano-30b"        # = mount target below (a path, NOT an HF repo)
-    gpu_ids: ["1"]
+    gpu_ids: ["0"]
     parser_profile: "nemotron_v3"              # qwen3_coder tool parser + nano_v3 reasoning
     vllm:
       tensor_parallel_size: 1
@@ -479,7 +479,7 @@ stt_service:
   litellm_name: "whisper-1"
   litellm_model: "openai/whisper-1"
   healthcheck_path: "/health"
-  gpu_devices: ["1"]
+  gpu_devices: ["0"]
   volumes:
     - "{{ deploy_dir }}/models/hf_cache:/home/ubuntu/.cache/huggingface"
   environment:
@@ -506,7 +506,7 @@ falcon_perception_service:
   healthcheck_start_period: "900s"
   healthcheck_retries: 40
   shm_size: "16gb"
-  gpu_devices: ["0"]
+  gpu_devices: ["1"]
   volumes:
     - "{{ deploy_dir }}/models/hf_cache:/models/huggingface"          # image sets HF_HOME here
     - "{{ deploy_dir }}/models/falcon_perception_cache:/cache"        # torchinductor/triton compile caches
@@ -528,7 +528,7 @@ docling_service:
   internal_port: 8020
   container_port: 8000
   healthcheck_path: "/health"
-  gpu_devices: ["1"]
+  gpu_devices: ["0"]
   environment:
     - "DOCLING_DEVICE=cuda"
     - "PDF_TABLE_STRUCTURE=true"
