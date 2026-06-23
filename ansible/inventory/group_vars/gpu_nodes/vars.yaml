@@ -50,9 +50,16 @@ parser_profiles:
     tool_call_parser: "qwen3_coder"
 
   soofi:
+    # Soofi-S-* are NVIDIA Nemotron-3-Nano fine-tunes (Soofi_Nano_V3_30B_A3B).
+    # tool_call_parser qwen3_coder is correct for Nemotron-3. The reasoning parser
+    # MUST be the custom nano_v3 (DeepSeekR1 subclass): plain deepseek_r1 assumes an
+    # implicit opening <think> and, with enable_thinking:false (no closing </think>),
+    # swallows the ENTIRE output — incl. tool calls — into reasoning_content, leaving
+    # content/tool_calls empty. nano_v3 swaps them back when thinking is off.
+    # Plugin file is mounted per model (extraVolumes → /opt/parsers/...). See PARSERS.md.
     enable_auto_tool_choice: true
     tool_call_parser: "qwen3_coder"
-    reasoning_parser: "deepseek_r1"
+    reasoning_parser: "nano_v3"
 
   minimax_m2:
     enable_auto_tool_choice: true
@@ -436,7 +443,7 @@ models:
   
 
   - name: "soofi-s-rhine-preview"
-    enabled: true
+    enabled: false
     is_local: true
     #hf_name: "Soofi-Project/Soofi-S-Rhine-Preview"
     hf_name: "/models/soofi-s-rhine-preview" 
@@ -450,14 +457,16 @@ models:
       dtype: "auto"  
       enable_prefix_caching: false 
       enable_chunked_prefill: false
-      trust_remote_code: true  
+      trust_remote_code: true
       chat_template_kwargs: '{"enable_thinking": false}'
+      reasoning_parser_plugin: "/opt/parsers/nano_v3_reasoning_parser.py"
     extraVolumes:
       - "/opt/soofi/models/local/Soofi-S-Rhine-Preview:/models/soofi-s-rhine-preview:ro"
+      - "/opt/soofi/models/local/parsers/nano_v3_reasoning_parser.py:/opt/parsers/nano_v3_reasoning_parser.py:ro"
 
 
   - name: "soofi-s-instruct-preview"
-    enabled: false
+    enabled: true
     is_local: true
     #hf_name: "Soofi-Project/Soofi-S-Instruct-Preview"
     hf_name: "/models/soofi-s-instruct-preview" 
@@ -465,16 +474,18 @@ models:
     parser_profile: "soofi"
     vllm:
       tensor_parallel_size: 1
-      gpu_memory_utilization: 0.4 
+      gpu_memory_utilization: 0.7 
       max_model_len: 64000                  # 256k default; reduce on OOM
       max_num_seqs: 8
       dtype: "auto"  
       enable_prefix_caching: false 
       enable_chunked_prefill: false
-      trust_remote_code: true  
+      trust_remote_code: true
       chat_template_kwargs: '{"enable_thinking": false}'
+      reasoning_parser_plugin: "/opt/parsers/nano_v3_reasoning_parser.py"
     extraVolumes:
       - "/opt/soofi/models/local/Soofi-S-Instruct-Preview:/models/soofi-s-instruct-preview:ro"
+      - "/opt/soofi/models/local/parsers/nano_v3_reasoning_parser.py:/opt/parsers/nano_v3_reasoning_parser.py:ro"
 
 
   - name: "soofi-s-isar-preview"
@@ -486,16 +497,18 @@ models:
     parser_profile: "soofi"
     vllm:
       tensor_parallel_size: 1
-      gpu_memory_utilization: 0.4 
+      gpu_memory_utilization: 0.7 
       max_model_len: 64000                  # 256k default; reduce on OOM
       max_num_seqs: 8
       dtype: "auto"  
       enable_prefix_caching: false 
       enable_chunked_prefill: false
-      trust_remote_code: true  
+      trust_remote_code: true
       chat_template_kwargs: '{"enable_thinking": false}'
+      reasoning_parser_plugin: "/opt/parsers/nano_v3_reasoning_parser.py"
     extraVolumes:
       - "/opt/soofi/models/local/Soofi-S-Isar-Preview:/models/soofi-s-isar-preview:ro"
+      - "/opt/soofi/models/local/parsers/nano_v3_reasoning_parser.py:/opt/parsers/nano_v3_reasoning_parser.py:ro"
 
   # ── Reranker (Qwen3, cross-encoder via vLLM score task, GPU 1, ~8 GB) ──────
   # enable_prefix_caching / enable_chunked_prefill are explicitly disabled —
