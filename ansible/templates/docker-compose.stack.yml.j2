@@ -168,6 +168,18 @@ services:
 {% if cfg.language_model_only | default(false) %}
       - "--language-model-only"
 {% endif %}
+{% if cfg.limit_mm_per_prompt is defined %}
+      - "--limit-mm-per-prompt"
+      - {{ cfg.limit_mm_per_prompt | tojson }}
+{% endif %}
+{% if cfg.mm_processor_kwargs is defined %}
+      - "--mm-processor-kwargs"
+      - {{ cfg.mm_processor_kwargs | tojson }}
+{% endif %}
+{% if cfg.video_pruning_rate is defined %}
+      - "--video-pruning-rate"
+      - "{{ cfg.video_pruning_rate }}"
+{% endif %}
 {% if cfg.calculate_kv_scales | default(false) %}
       - "--calculate-kv-scales"
 {% endif %}
