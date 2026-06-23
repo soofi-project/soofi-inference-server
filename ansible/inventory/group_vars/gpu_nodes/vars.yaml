@@ -49,6 +49,10 @@ parser_profiles:
     enable_auto_tool_choice: true
     tool_call_parser: "qwen3_coder"
 
+  soofi:
+    enable_auto_tool_choice: true
+    tool_call_parser: "qwen3_coder"
+    reasoning_parser: "deepseek_r1"
 
   minimax_m2:
     enable_auto_tool_choice: true
@@ -62,7 +66,7 @@ parser_profiles:
 models:
 # Embedding model for the agents
   - name: "qwen3-embedding-8b"
-    enabled: false
+    enabled: true
     hf_name: "Qwen/Qwen3-Embedding-8B"
     gpu_ids: ["0"]
     vllm:
@@ -208,12 +212,12 @@ models:
     parser_profile: "qwen3"
     gpu_ids: ["1"]
     vllm:
-      gpu_memory_utilization: 0.6 
+      gpu_memory_utilization: 0.6
       tensor_parallel_size: 1
-      max_num_seqs: 4          
+      max_num_seqs: 4
       max_model_len: 32768
       kv_cache_dtype: "fp8"
-      max_num_batched_tokens: 32768   
+      max_num_batched_tokens: 32768
       enable_prefix_caching: true
       speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
       trust_remote_code: true
@@ -416,7 +420,7 @@ models:
 
 
   - name: "NVIDIA-Nemotron-3-Nano-30B-A3B-FP8"
-    enabled: true
+    enabled: false
     hf_name: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8"
     gpu_ids: ["0"]
     parser_profile: "nemotron_v3"
@@ -431,43 +435,76 @@ models:
       kv_cache_dtype: "fp8"
   
 
-
-  # ── Soofi Nano 30B-A3B (built from scratch with the Nemotron pipeline, NOT HF) ─
-  # In-house weights using the Nemotron-H architecture (model_type: nemotron_h) —
-  # NOT an NVIDIA fine-tune. Loading is identical (NemotronHForCausalLM).
-  # → Serve PLAIN first, inspect the output, then enable the parser if it fits.
-  #   If the model emits DeepSeek-R1-style <think>…</think> markup, the built-in
-  #   nemotron_v3 profile parses it (no plugin needed) — uncomment the line below.
-  # hf_name is the CONTAINER-INTERNAL path → vLLM loads locally instead of from HF.
-  - name: "soofi-nano-30b"
+  - name: "soofi-s-rhine-preview"
     enabled: true
     is_local: true
-    hf_name: "/models/soofi-nano-30b"        # = mount target below (a path, NOT an HF repo)
+    #hf_name: "Soofi-Project/Soofi-S-Rhine-Preview"
+    hf_name: "/models/soofi-s-rhine-preview" 
     gpu_ids: ["0"]
-    parser_profile: "nemotron_v3"              # qwen3_coder tool parser + nano_v3 reasoning
+    parser_profile: "soofi"
     vllm:
-      reasoning_parser: "nano_v3"
       tensor_parallel_size: 1
-      gpu_memory_utilization: 0.5            # GPU 1; lower on OOM (shares the GPU with STT/TTS)
+      gpu_memory_utilization: 0.7 
       max_model_len: 64000                  # 256k default; reduce on OOM
       max_num_seqs: 8
-      dtype: "auto"                           # checkpoint is BF16
-      enable_prefix_caching: false           # SSM/Mamba state — disabled to be safe
+      dtype: "auto"  
+      enable_prefix_caching: false 
       enable_chunked_prefill: false
-      trust_remote_code: true                # uses the bundled modeling_nemotron_h.py
-      reasoning_parser_plugin: "/models/soofi-nano-30b/nano_v3_reasoning_parser.py"
+      trust_remote_code: true  
       chat_template_kwargs: '{"enable_thinking": false}'
     extraVolumes:
-      - "/opt/soofi/models/local/Soofi_Nano_V3_30B_A3B/iter_0000600:/models/soofi-nano-30b:ro"
+      - "/opt/soofi/models/local/Soofi-S-Rhine-Preview:/models/soofi-s-rhine-preview:ro"
+
+
+  - name: "soofi-s-instruct-preview"
+    enabled: false
+    is_local: true
+    #hf_name: "Soofi-Project/Soofi-S-Instruct-Preview"
+    hf_name: "/models/soofi-s-instruct-preview" 
+    gpu_ids: ["0"]
+    parser_profile: "soofi"
+    vllm:
+      tensor_parallel_size: 1
+      gpu_memory_utilization: 0.4 
+      max_model_len: 64000                  # 256k default; reduce on OOM
+      max_num_seqs: 8
+      dtype: "auto"  
+      enable_prefix_caching: false 
+      enable_chunked_prefill: false
+      trust_remote_code: true  
+      chat_template_kwargs: '{"enable_thinking": false}'
+    extraVolumes:
+      - "/opt/soofi/models/local/Soofi-S-Instruct-Preview:/models/soofi-s-instruct-preview:ro"
+
+
+  - name: "soofi-s-isar-preview"
+    enabled: false
+    is_local: true
+    #hf_name: "Soofi-Project/Soofi-S-Isar-Preview"
+    hf_name: "/models/soofi-s-isar-preview" 
+    gpu_ids: ["0"]
+    parser_profile: "soofi"
+    vllm:
+      tensor_parallel_size: 1
+      gpu_memory_utilization: 0.4 
+      max_model_len: 64000                  # 256k default; reduce on OOM
+      max_num_seqs: 8
+      dtype: "auto"  
+      enable_prefix_caching: false 
+      enable_chunked_prefill: false
+      trust_remote_code: true  
+      chat_template_kwargs: '{"enable_thinking": false}'
+    extraVolumes:
+      - "/opt/soofi/models/local/Soofi-S-Isar-Preview:/models/soofi-s-isar-preview:ro"
 
   # ── Reranker (Qwen3, cross-encoder via vLLM score task, GPU 1, ~8 GB) ──────
   # enable_prefix_caching / enable_chunked_prefill are explicitly disabled —
   # vLLM does not officially support them for pooling models and they can
   # cause failures or degraded scores. Overrides the global vllm_defaults.
   - name: "qwen3-reranker-4b"
-    enabled: false
+    enabled: true
     hf_name: "Qwen/Qwen3-Reranker-4B"
-    gpu_ids: ["0"]
+    gpu_ids: ["1"]
     host_port: 8003
     vllm:
       tensor_parallel_size: 1

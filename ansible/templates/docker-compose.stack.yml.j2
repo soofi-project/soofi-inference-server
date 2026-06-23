@@ -114,16 +114,19 @@ services:
 {% if cfg.enable_chunked_prefill | default(false) %}
       - "--enable-chunked-prefill"
 {% endif %}
-{% if parser.enable_auto_tool_choice | default(false) %}
+{% set _auto_tool = cfg.enable_auto_tool_choice | default(parser.enable_auto_tool_choice) %}
+{% if _auto_tool | default(false) %}
       - "--enable-auto-tool-choice"
 {% endif %}
-{% if parser.tool_call_parser is defined %}
+{% set _tool_parser = cfg.tool_call_parser | default(parser.tool_call_parser) %}
+{% if _tool_parser is defined %}
       - "--tool-call-parser"
-      - {{ parser.tool_call_parser | tojson }}
+      - {{ _tool_parser | tojson }}
 {% endif %}
-{% if parser.reasoning_parser is defined %}
+{% set _reasoning_parser = cfg.reasoning_parser | default(parser.reasoning_parser) %}
+{% if _reasoning_parser is defined %}
       - "--reasoning-parser"
-      - {{ parser.reasoning_parser | tojson }}
+      - {{ _reasoning_parser | tojson }}
 {% endif %}
 {% if cfg.reasoning_parser_plugin is defined %}
       - "--reasoning-parser-plugin"
