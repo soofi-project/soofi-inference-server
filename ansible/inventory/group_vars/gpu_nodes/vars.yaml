@@ -27,10 +27,11 @@ custom_images:
   - repository: "soofi/vllm-openai-cosmos3"
     tag: "v0.21.0"
     dockerfile: "Dockerfile.vllm-cosmos3"
-  # Falcon-Perception FastAPI server — tag mirrors the upstream REPO_REF pinned
-  # in the Dockerfile; bump both together to upgrade.
+  # Falcon-Perception FastAPI server — based on upstream REPO_REF pinned in the
+  # Dockerfile, with a local low-memory server patch. Bump the tag when changing
+  # the patch or upstream ref so Compose recreates the container.
   - repository: "soofi/falcon-perception"
-    tag: "v1.0.0"
+    tag: "v1.0.0-lowmem1"
     dockerfile: "Dockerfile.falcon-perception"
 
 # Shared parser/tooling presets for model families.
@@ -565,7 +566,7 @@ stt_service:
 # enabled — check nvidia-smi headroom before enabling alongside more models.
 falcon_perception_service:
   container_name: "falcon-perception"
-  image: "soofi/falcon-perception:v1.0.0"
+  image: "soofi/falcon-perception:v1.0.0-lowmem1"
   hf_name: "tiiuae/Falcon-Perception"
   internal_port: 8004
   container_port: 7860
@@ -585,6 +586,8 @@ falcon_perception_service:
     - "MAX_BATCH_SIZE=8"
     - "MAX_SEQ_LENGTH=4096"
     - "PREFILL_LENGTH_LIMIT=4096"
+    # Keeps the pinned CPU HR segmentation feature pool around ~4 GiB at 1024px.
+    - "MAX_HR_CACHE_ENTRIES=8"
     - "HF_TOKEN={{ hf_token }}"
     - "TEMPERATURE=0.0"
 

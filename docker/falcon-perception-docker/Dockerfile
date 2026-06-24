@@ -39,6 +39,62 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /workspace/falcon-perception
 COPY . .
 
+# Upstream exposes KV/cache sizing, but not the high-resolution segmentation
+# feature cache. Make it configurable for low-concurrency deploys.
+RUN python - <<'PY'
+from pathlib import Path
+
+config_path = Path("falcon_perception/server/config.py")
+config = config_path.read_text()
+config_needle = (
+    '    top_k: int | None = field(default_factory=lambda: _env_int("TOP_K", None) '
+    'if os.environ.get("TOP_K") else None)\n'
+)
+config_replacement = (
+    config_needle
+    + '    max_hr_cache_entries: int = field(default_factory=lambda: '
+    + '_env_int("MAX_HR_CACHE_ENTRIES", 8))\n'
+)
+if "max_hr_cache_entries" not in config:
+    if config_needle not in config:
+        raise RuntimeError("Falcon config patch target not found")
+    config_path.write_text(config.replace(config_needle, config_replacement))
+
+worker_path = Path("falcon_perception/server/engine_worker.py")
+worker = worker_path.read_text()
+worker_needle = """        engine = PagedInferenceEngine(
+            model,
+            tokenizer,
+            image_processor,
+            max_batch_size=config.max_batch_size,
+            max_seq_length=config.max_seq_length,
+            n_pages=config.n_pages,
+            page_size=config.page_size,
+            prefill_length_limit=config.prefill_length_limit,
+            capture_cudagraph=config.cudagraph,
+            max_decode_steps_between_prefills=config.max_decode_steps_between_prefills,
+        )
+"""
+worker_replacement = """        engine = PagedInferenceEngine(
+            model,
+            tokenizer,
+            image_processor,
+            max_batch_size=config.max_batch_size,
+            max_seq_length=config.max_seq_length,
+            n_pages=config.n_pages,
+            page_size=config.page_size,
+            prefill_length_limit=config.prefill_length_limit,
+            capture_cudagraph=config.cudagraph,
+            max_decode_steps_between_prefills=config.max_decode_steps_between_prefills,
+            max_hr_cache_entries=config.max_hr_cache_entries,
+        )
+"""
+if "max_hr_cache_entries=config.max_hr_cache_entries" not in worker:
+    if worker_needle not in worker:
+        raise RuntimeError("Falcon worker patch target not found")
+    worker_path.write_text(worker.replace(worker_needle, worker_replacement))
+PY
+
 # Install PyTorch explicitly from the CUDA 12.8 wheel index, then install the repo extras.
 # Use --build-arg EXTRAS=server,demo for a smaller image that excludes OCR layout dependencies.
 RUN --mount=type=cache,target=/root/.cache/pip \
