@@ -219,16 +219,16 @@ models:
     parser_profile: "qwen3"
     gpu_ids: ["1"]
     vllm:
-      gpu_memory_utilization: 0.6
+      gpu_memory_utilization: 0.5
       tensor_parallel_size: 1
       max_num_seqs: 4
-      max_model_len: 32768
+      max_model_len: 16384
       kv_cache_dtype: "fp8"
-      max_num_batched_tokens: 32768
+      max_num_batched_tokens: 16384
       enable_prefix_caching: true
-      speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
+      #speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
       trust_remote_code: true
-      limit_mm_per_prompt: '{"image": 8, "video": 0, "audio": 0}'
+      limit_mm_per_prompt: '{"image": 4, "video": 0, "audio": 0}'
       #max_num_batched_tokens: 16384
       chat_template_kwargs: '{"enable_thinking": false}'
 
@@ -581,6 +581,10 @@ falcon_perception_service:
     - "HF_MODEL_ID=tiiuae/Falcon-Perception"
     - "DTYPE=bfloat16"
     - "NUM_GPUS=1"
+    - "N_PAGES=128"
+    - "MAX_BATCH_SIZE=8"
+    - "MAX_SEQ_LENGTH=4096"
+    - "PREFILL_LENGTH_LIMIT=4096"
     - "HF_TOKEN={{ hf_token }}"
     - "TEMPERATURE=0.0"
 
