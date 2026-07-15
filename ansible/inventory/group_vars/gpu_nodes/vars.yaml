@@ -227,7 +227,7 @@ models:
       kv_cache_dtype: "fp8"
       max_num_batched_tokens: 16384
       enable_prefix_caching: true
-      #speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
+      speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
       trust_remote_code: true
       limit_mm_per_prompt: '{"image": 4, "video": 0, "audio": 0}'
       #max_num_batched_tokens: 16384
@@ -482,7 +482,7 @@ models:
       enable_prefix_caching: false 
       enable_chunked_prefill: false
       trust_remote_code: true
-      chat_template_kwargs: '{"enable_thinking": false}'
+      chat_template_kwargs: '{"enable_thinking": true}'
       reasoning_parser_plugin: "/opt/parsers/nano_v3_reasoning_parser.py"
     extraVolumes:
       - "/opt/soofi/models/local/Soofi-S-Instruct-Preview:/models/soofi-s-instruct-preview:ro"
