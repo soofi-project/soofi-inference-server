@@ -211,7 +211,23 @@ models:
       chat_template_kwargs: '{"enable_thinking": false}'
   
 
-
+  - name: "qwen36-27b-coding"
+    enabled: true
+    hf_name: "Qwen/Qwen3.6-27B-FP8"
+    parser_profile: "qwen3"
+    gpu_ids: ["0"]
+    vllm:
+      gpu_memory_utilization: 0.6
+      tensor_parallel_size: 1
+      max_num_seqs: 4
+      max_model_len: 64000
+      kv_cache_dtype: "fp8"
+      max_num_batched_tokens: 64000
+      enable_prefix_caching: true
+      speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
+      trust_remote_code: true
+      #max_num_batched_tokens: 16384
+      chat_template_kwargs: '{"enable_thinking": false}'
   
 
   - name: "qwen36-27b-multi"
@@ -467,7 +483,7 @@ models:
 
 
   - name: "soofi-s-instruct-preview"
-    enabled: true
+    enabled: false
     is_local: true
     #hf_name: "Soofi-Project/Soofi-S-Instruct-Preview"
     hf_name: "/models/soofi-s-instruct-preview" 
