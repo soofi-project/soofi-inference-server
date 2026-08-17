@@ -224,7 +224,7 @@ models:
       kv_cache_dtype: "fp8"
       max_num_batched_tokens: 64000
       enable_prefix_caching: true
-      speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
+      speculative_config: '{"method":"mtp","num_speculative_tokens":3}'
       trust_remote_code: true
       #max_num_batched_tokens: 16384
       chat_template_kwargs: '{"enable_thinking": false}'
