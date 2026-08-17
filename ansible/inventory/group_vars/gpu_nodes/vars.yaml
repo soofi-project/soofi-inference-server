@@ -211,9 +211,9 @@ models:
       chat_template_kwargs: '{"enable_thinking": false}'
   
 
-  - name: "qwen36-27b-coding"
+  - name: "qwen38-27b-coding"
     enabled: true
-    hf_name: "Qwen/Qwen3.6-27B-FP8"
+    hf_name: "Qwen/Qwen3.8-27B-FP8"
     parser_profile: "qwen3_coder"
     gpu_ids: ["0"]
     vllm:
