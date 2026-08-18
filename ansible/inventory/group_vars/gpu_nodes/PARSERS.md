@@ -19,9 +19,11 @@ specifies `--tool-call-parser qwen3_coder` together with `--reasoning-parser qwe
 i.e. the `qwen3_coder` profile, not `qwen3_xml`. Don't "correct" it to `qwen3_xml`.
 See https://recipes.vllm.ai/Qwen/Qwen3.8-27B
 
-## Other parsers (vLLM v0.21.0)
+## Other parsers
 
-Full list from `--tool-call-parser` flag:
+Full list from the `--tool-call-parser` flag, **as captured on vLLM v0.21.0**.
+`vllm_defaults.tag` is now v0.27.1, so this list is stale — re-run the command
+below against the image you actually deploy before trusting it:
 
 ```
 cohere_command3, cohere_command4,
