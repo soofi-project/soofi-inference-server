@@ -11,9 +11,15 @@ cuda_version: "12-4"                  # apt format (dash-separated)
 deploy_dir: /opt/soofi
 
 # vLLM defaults — override per model if needed.
+# Bumped v0.21.0 (15 May 2026) → v0.27.1 (11 Aug 2026). Newest stable tag; brings
+# transformers 5.13.0 (vLLM #47867), PyTorch 2.13, and a lot of Qwen3.5/3.6 kernel
+# work (RMSNorm+all-reduce fusion, MoE reduce-scatter, H20 opt) that qwen36-27b-multi
+# benefits from. Deliberately NOT the `qwen38` branch build — that one is pinned on
+# the single model that needs it (see qwen38-27b-coding), so the rest of the stack
+# stays on a versioned tag.
 vllm_defaults:
   repository: "vllm/vllm-openai"
-  tag: "v0.21.0"
+  tag: "v0.27.1"
   config:
     tensor_parallel_size: 1
     dtype: "auto"
@@ -24,8 +30,10 @@ vllm_defaults:
 # starts, but only when an enabled model (via repository/tag) or a service
 # block (via image) references them. Dockerfiles live in docker/ at the repo root.
 custom_images:
+  # Tag mirrors the vLLM base image in Dockerfile.vllm-cosmos3 — keep the three in
+  # sync (here, the Dockerfile FROM, and the cosmos-3-nano model entry below).
   - repository: "soofi/vllm-openai-cosmos3"
-    tag: "v0.21.0"
+    tag: "v0.27.1"
     dockerfile: "Dockerfile.vllm-cosmos3"
   # Falcon-Perception FastAPI server — based on upstream REPO_REF pinned in the
   # Dockerfile, with a local low-memory server patch. Bump the tag when changing
@@ -211,13 +219,12 @@ models:
       chat_template_kwargs: '{"enable_thinking": false}'
   
 
-  # Qwen3.8 is NOT in any tagged vLLM release yet — v0.27.1 (11 Aug 2026) predates
-  # it; support ships in the day-0 `qwen38` branch builds (pushed 12 Aug 2026).
-  # The default v0.21.0 image (15 May 2026) is also too old on transformers: this
-  # checkpoint's config.json needs >= 5.8.0, while v0.21.0 only floors at 4.56.0.
-  # The qwen38 build carries the 5.13.0 bump (vLLM #47867), so one image override
-  # fixes both. Per-model override on purpose — the other models stay on the
-  # known-good vllm_defaults tag. cu130 needs driver >= 580 (host runs 590).
+  # Qwen3.8 is NOT in any tagged vLLM release, not even the current default:
+  # v0.27.1 (11 Aug 2026) predates it and only adds Qwen3.5 text-only dense/MoE.
+  # Support ships in the day-0 `qwen38` branch builds (pushed 12 Aug 2026), so this
+  # is the one model that has to run off a branch build rather than a version tag.
+  # It also satisfies the transformers >= 5.8.0 that this checkpoint's config.json
+  # requires. cu130 needs driver >= 580 (host runs 590).
   # Note: `compose up` does not re-pull, so this tag is effectively pinned to the
   # first pull; `docker pull vllm/vllm-openai:qwen38-x86_64-cu130` on the host to
   # pick up a rebuild. Drop repository/tag once Qwen3.8 lands in a stable release.
@@ -286,7 +293,7 @@ models:
     enabled: false
     hf_name: "nvidia/Cosmos3-Nano"
     repository: "soofi/vllm-openai-cosmos3"
-    tag: "v0.21.0"
+    tag: "v0.27.1"
     gpu_ids: ["0"]  # GPU 1 is fully booked (qwen36-27b-multi 0.5 + nemotron omni 0.5)
     vllm:
       gpu_memory_utilization: 0.5
