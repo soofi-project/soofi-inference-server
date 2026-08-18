@@ -8,10 +8,16 @@ to appear as plain text on the second conversation turn.
 | Parser | Use for |
 |---|---|
 | `qwen3_xml` | Qwen3 / Qwen3.5 / Qwen3.6 Instruct and MoE models |
-| `qwen3_coder` | Qwen3-Coder variants, NVIDIA Nemotron-3 (uses `肇`/`uito` + `<function>` format) |
+| `qwen3_coder` | Qwen3-Coder variants, **Qwen3.8**, NVIDIA Nemotron-3 (uses `肇`/`uito` + `<function>` format) |
 
 Instruct and Coder models emit tool calls in different formats. Mixing them up breaks
 multi-turn tool use: turn 1 may work by accident, turn 2 always fails.
+
+**Qwen3.8 is the exception to the family pattern above.** Despite being an Instruct-style
+model (and reusing the `Qwen3_5ForConditionalGeneration` architecture), its vLLM recipe
+specifies `--tool-call-parser qwen3_coder` together with `--reasoning-parser qwen3` —
+i.e. the `qwen3_coder` profile, not `qwen3_xml`. Don't "correct" it to `qwen3_xml`.
+See https://recipes.vllm.ai/Qwen/Qwen3.8-27B
 
 ## Other parsers (vLLM v0.21.0)
 
@@ -36,6 +42,10 @@ docker run --rm --entrypoint="" vllm/vllm-openai:<tag> \
   python3 -m vllm.entrypoints.openai.api_server --help 2>&1 | grep -i "tool-call-parser"
 ```
 
+Note: models can pin their own image via `repository`/`tag` in `vars.yaml`
+(`qwen38-27b-coding` runs `qwen38-x86_64-cu130`), so the list above — taken from
+`vllm_defaults.tag` — is not necessarily what those containers accept. Check per image.
+
 ## Reasoning parsers
 
 Set alongside `tool_call_parser` when the model has a thinking/reasoning mode.
@@ -43,7 +53,7 @@ With `enable_thinking: false` in `chat_template_kwargs` this is a no-op but harm
 
 | Parser | Use for |
 |---|---|
-| `qwen3` | Qwen3 / Qwen3.5 / Qwen3.6 |
+| `qwen3` | Qwen3 / Qwen3.5 / Qwen3.6 / Qwen3.8 |
 | `nano_v3` | NVIDIA Nemotron-3 Nano (requires `reasoning_parser_plugin`) |
 | `nemotron_v3` | NVIDIA Nemotron v3 (legacy) |
 | `minimax_m2_append_think` | MiniMax M2 |
