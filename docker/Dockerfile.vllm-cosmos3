@@ -4,7 +4,13 @@
 # Built on the GPU host by stack_deploy.yaml — see custom_images in
 # ansible/inventory/group_vars/gpu_nodes/vars.yaml.
 # Ref: https://github.com/NVIDIA/cosmos/blob/main/cookbooks/cosmos3/README.md#start-the-server
-FROM vllm/vllm-openai:v0.21.0
+# Base tag must match the custom_images tag in vars.yaml (and the cosmos-3-nano
+# model entry) — the image tag is what tells Compose to rebuild/recreate.
+# vllm-cosmos3 is installed from git main (unpinned), so it resolves against
+# whatever vLLM this base ships. Cosmos3-Nano is currently disabled, meaning this
+# image is NOT built by the playbook — verify the plugin actually builds against
+# the base before re-enabling the model.
+FROM vllm/vllm-openai:v0.27.1
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git \
