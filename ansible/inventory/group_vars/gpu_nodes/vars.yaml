@@ -174,12 +174,12 @@ models:
     parser_profile: "qwen3_coder"
     gpu_ids: ["0"]
     vllm:
-      gpu_memory_utilization: 0.6
+      gpu_memory_utilization: 0.7
       tensor_parallel_size: 1
-      max_num_seqs: 4
-      max_model_len: 64000
+      max_num_seqs: 8
+      max_model_len: 120000
       kv_cache_dtype: "fp8"
-      max_num_batched_tokens: 64000
+      max_num_batched_tokens: 8192
       enable_prefix_caching: true
       speculative_config: '{"method":"mtp","num_speculative_tokens":3}'
       trust_remote_code: true
@@ -204,7 +204,7 @@ models:
       chat_template_kwargs: '{"enable_thinking": false}'
 
   - name: "qwen36-27b-multi"
-    enabled: true
+    enabled: false
     hf_name: "Qwen/Qwen3.6-27B-FP8"
     parser_profile: "qwen3"
     gpu_ids: ["1"]
