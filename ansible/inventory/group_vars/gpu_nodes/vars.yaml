@@ -211,9 +211,21 @@ models:
       chat_template_kwargs: '{"enable_thinking": false}'
   
 
+  # Qwen3.8 is NOT in any tagged vLLM release yet — v0.27.1 (11 Aug 2026) predates
+  # it; support ships in the day-0 `qwen38` branch builds (pushed 12 Aug 2026).
+  # The default v0.21.0 image (15 May 2026) is also too old on transformers: this
+  # checkpoint's config.json needs >= 5.8.0, while v0.21.0 only floors at 4.56.0.
+  # The qwen38 build carries the 5.13.0 bump (vLLM #47867), so one image override
+  # fixes both. Per-model override on purpose — the other models stay on the
+  # known-good vllm_defaults tag. cu130 needs driver >= 580 (host runs 590).
+  # Note: `compose up` does not re-pull, so this tag is effectively pinned to the
+  # first pull; `docker pull vllm/vllm-openai:qwen38-x86_64-cu130` on the host to
+  # pick up a rebuild. Drop repository/tag once Qwen3.8 lands in a stable release.
   - name: "qwen38-27b-coding"
     enabled: true
     hf_name: "Qwen/Qwen3.8-27B-FP8"
+    repository: "vllm/vllm-openai"
+    tag: "qwen38-x86_64-cu130"
     parser_profile: "qwen3_coder"
     gpu_ids: ["0"]
     vllm:
