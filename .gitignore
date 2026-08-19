@@ -28,4 +28,4 @@ Thumbs.db
 *.log
 logs/
 .codex
-.claude/settings.local.json
+.claude/
