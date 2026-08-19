@@ -75,6 +75,17 @@ parser_profiles:
     tool_call_parser: "minimax_m2"
     reasoning_parser: "minimax_m2_append_think"
 
+  muse_glimmer:
+    # Muse-Glimmer emits neither JSON tool calls nor <think> tags — it frames
+    # every turn in channel-scoped markers (`to=self<|message|>`, ATEM-style
+    # <atem:invoke> blocks, closed with <|eom|>/<|eot|>). The two parsers are a
+    # package deal: the reasoning parser is what forces skip_special_tokens=False,
+    # and without it BOTH channels collapse into plain content (or nothing at
+    # all). Do not pair either one with a generic parser. See PARSERS.md.
+    enable_auto_tool_choice: true
+    tool_call_parser: "muse_glimmer"
+    reasoning_parser: "muse_glimmer"
+
 # Models to deploy — each gets its own vllm/vllm-openai container.
 # Set enabled: false to keep a model in the catalog without deploying it.
 # repository/tag are optional — fall back to vllm_defaults above.
@@ -221,6 +232,64 @@ models:
       limit_mm_per_prompt: '{"image": 4, "video": 0, "audio": 0}'
       #max_num_batched_tokens: 16384
       chat_template_kwargs: '{"enable_thinking": false}'
+
+
+  # ── Image analysis (takes over the qwen36-27b-multi role) ─────────────────
+  # Meta Muse-Glimmer-30B: dense 29.6B VLM (52-layer decoder + ~1.8B ViT-G/14
+  # perception encoder), 131k native context. RedHatAI FP8-block checkpoint —
+  # 32.78 GB on disk, block-scaled FP8 weights with dynamic activations; vision
+  # tower, embeddings and lm_head stay BF16, so image quality is unaffected by
+  # the quantization. No trust_remote_code needed. Recipe:
+  # https://recipes.vllm.ai/meta-models/Muse-Glimmer-30B?variant=fp8_block&hardware=h200&features=tool_calling%2Creasoning%2Cspec_decoding&advanced=max_batched_8k
+  #
+  # Image is pinned to a branch build, same situation as qwen38-27b-coding:
+  # muse_glimmer support (model + both parsers + DFlash spec decoding) lands via
+  # vllm-project/vllm#51655 and the day-0 `vllm/vllm-openai:muse-glimmer` image,
+  # NOT in the v0.27.1 default tag. `compose up` does not re-pull, so run
+  # `docker pull vllm/vllm-openai:muse-glimmer` on the host to pick up a rebuild.
+  # Drop repository/tag once muse_glimmer lands in a stable release.
+  #
+  # No chat_template_kwargs: this model has no enable_thinking toggle. Reasoning
+  # effort is set per request with a "Reasoning strength: low|medium|high|xhigh"
+  # line in the system prompt (use high/xhigh for agentic work). Also budget
+  # max_tokens generously — a tight limit truncates before the final channel
+  # closes and returns empty content with finish_reason "stop".
+  - name: "muse-glimmer-30b-multi"
+    enabled: true
+    hf_name: "RedHatAI/Muse-Glimmer-30B-FP8-block"
+    repository: "vllm/vllm-openai"
+    tag: "muse-glimmer"
+    parser_profile: "muse_glimmer"
+    gpu_ids: ["1"]
+    vllm:
+      tensor_parallel_size: 1              # 32.78 GB fits one H200 NVL; recipe TP=4 is for 4x GB300
+      gpu_memory_utilization: 0.5          # ~70 GB: 32.8 weights + 5.1 draft head + KV/activations
+      max_model_len: 65536                 # native 131k, halved — channel-scoped reasoning is
+                                           # token-hungry, but GPU 1 also carries the reranker
+                                           # (0.15) and falcon-perception. Raise if KV headroom allows.
+      max_num_seqs: 4
+      max_num_batched_tokens: 8192         # recipe's max_batched_8k profile; relies on the
+                                           # chunked prefill enabled in vllm_defaults
+      kv_cache_dtype: "auto"               # deliberately NOT fp8, unlike the qwen entries: the
+                                           # recipe calls fp8 KV an out-of-recipe extension that
+                                           # changes the memory math and OOM'd the speculator.
+                                           # At 0.5 utilization there is no need to squeeze KV.
+      enable_prefix_caching: true
+      limit_mm_per_prompt: '{"image": 4}'   # image-text-to-text only — no video/audio modality
+                                           # to cap, and vLLM rejects unsupported modality keys
+      # DFlash block-diffusion draft head: predicts a whole block per forward,
+      # verified in parallel by the target. num_speculative_tokens is FIXED at 15
+      # (block_size 16, slot 0 re-presents the last accepted token) — not a tunable.
+      # The head reads the target's residual stream and is useless with any other
+      # model. NOTE: only hf_name is pre-downloaded by the playbook, so this 5.11 GB
+      # repo is pulled on first container start before the server comes up.
+      speculative_config: '{"method": "dflash", "model": "meta-models/Muse-Glimmer-30B-assistant", "num_speculative_tokens": 15}'
+    extra_args:
+      # Not in the compose template whitelist. Loads the checkpoint's sampling
+      # defaults (temperature 1.0 / top_p 0.95 / top_k 64) — the recipe explicitly
+      # discourages greedy decoding for this model.
+      - "--generation-config"
+      - "auto"
 
 
   # Cosmos3-Nano (reasoner mode) needs NVIDIA's vllm-cosmos3 plugin, which the

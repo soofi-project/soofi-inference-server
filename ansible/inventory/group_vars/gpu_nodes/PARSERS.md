@@ -19,6 +19,20 @@ specifies `--tool-call-parser qwen3_coder` together with `--reasoning-parser qwe
 i.e. the `qwen3_coder` profile, not `qwen3_xml`. Don't "correct" it to `qwen3_xml`.
 See https://recipes.vllm.ai/Qwen/Qwen3.8-27B
 
+## Meta Muse-Glimmer
+
+`muse_glimmer` for **both** `--tool-call-parser` and `--reasoning-parser` — this is the
+one profile where the pairing is mandatory rather than a convention. Muse-Glimmer emits
+neither JSON tool calls nor `<think>` tags; every turn is channel-scoped
+(`to=self<|message|>`, `<|start|>assistant to=<tool><|message|>`, ATEM-style
+`<atem:invoke>` blocks, closed with `<|eom|>`/`<|eot|>`). The reasoning parser is what
+forces `skip_special_tokens=False`; drop it and the reasoning and tool channels collapse
+into plain content — tool use looks broken while the model is doing the right thing.
+
+Not available in the `vllm_defaults.tag` image: support ships in vllm-project/vllm#51655
+and the `vllm/vllm-openai:muse-glimmer` build, which `muse-glimmer-30b-multi` pins.
+See https://recipes.vllm.ai/meta-models/Muse-Glimmer-30B
+
 ## Other parsers
 
 Full list from the `--tool-call-parser` flag, **as captured on vLLM v0.21.0**.
@@ -60,3 +74,4 @@ With `enable_thinking: false` in `chat_template_kwargs` this is a no-op but harm
 | `nemotron_v3` | NVIDIA Nemotron v3 (legacy) |
 | `minimax_m2_append_think` | MiniMax M2 |
 | `gemma4` | Gemma 4 |
+| `muse_glimmer` | Meta Muse-Glimmer (mandatory — see above) |
