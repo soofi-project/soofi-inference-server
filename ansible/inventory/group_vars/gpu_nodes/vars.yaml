@@ -190,10 +190,30 @@ models:
       max_num_seqs: 8
       max_model_len: 120000
       kv_cache_dtype: "fp8"
-      max_num_batched_tokens: 8192
+      max_num_batched_tokens: 16384
+      enable_prefix_caching: true
+      limit_mm_per_prompt: '{"image": 4, "video": 0}'
+      speculative_config: '{"method":"mtp","num_speculative_tokens":3}'
+      chat_template_kwargs: '{"enable_thinking": false}'
+
+  - name: "qwen38-27b-multi"
+    enabled: false
+    hf_name: "Qwen/Qwen3.8-27B-FP8"
+    repository: "vllm/vllm-openai"
+    tag: "qwen38-x86_64-cu130"
+    parser_profile: "qwen3_coder"
+    gpu_ids: ["1"]
+    vllm:
+      gpu_memory_utilization: 0.5
+      tensor_parallel_size: 1
+      max_num_seqs: 4
+      max_model_len: 65536
+      kv_cache_dtype: "fp8"
+      max_num_batched_tokens: 16384
       enable_prefix_caching: true
       speculative_config: '{"method":"mtp","num_speculative_tokens":3}'
-      trust_remote_code: true
+      limit_mm_per_prompt: '{"image": 4, "video": 0}'
+      #max_num_batched_tokens: 16384
       chat_template_kwargs: '{"enable_thinking": false}'
   
   - name: "qwen36-27b-coding"
@@ -232,6 +252,7 @@ models:
       limit_mm_per_prompt: '{"image": 4, "video": 0, "audio": 0}'
       #max_num_batched_tokens: 16384
       chat_template_kwargs: '{"enable_thinking": false}'
+
 
 
   # ── Image analysis (takes over the qwen36-27b-multi role) ─────────────────
