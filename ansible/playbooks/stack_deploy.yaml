@@ -167,6 +167,33 @@
       poll: 30
       changed_when: true
 
+    # Krea uses a separately pinned vLLM-Omni image and is intentionally not in
+    # active_models, so pre-download it independently into the same HF cache.
+    # Run the idempotent downloader on every enabled deployment: Hugging Face
+    # creates snapshot metadata before large blobs finish, so directory presence
+    # is not proof of a complete checkpoint. Disable Xet to avoid its gated-repo
+    # hash parsing failure; the standard HTTP downloader resumes cached blobs.
+    - name: Download Krea 2 weights from HuggingFace
+      ansible.builtin.command:
+        cmd: >-
+          docker run --rm
+          --entrypoint hf
+          -v {{ deploy_dir }}/models/hf_cache:/root/.cache/huggingface
+          -e HF_HUB_ENABLE_HF_TRANSFER=1
+          -e HF_HUB_DISABLE_XET=1
+          {% if hf_token | default('') | regex_search('^hf_') %}
+          -e HF_TOKEN={{ hf_token }}
+          -e HUGGING_FACE_HUB_TOKEN={{ hf_token }}
+          {% endif %}
+          {{ image_generation_service.image }}
+          download {{ image_generation_service.hf_name }}
+      when:
+        - image_generation_service is defined
+        - image_generation_service.enabled | default(false)
+      async: 7200
+      poll: 30
+      changed_when: true
+
     - name: Clean up any residual incomplete download files
       ansible.builtin.find:
         paths: "{{ deploy_dir }}/models/hf_cache/hub"
@@ -342,12 +369,17 @@
         'Started' in (compose_up.stderr | default('')) or
         'Created' in (compose_up.stderr | default('')) or
         'Recreated' in (compose_up.stderr | default(''))
-      when: active_models | length > 0
+      when: >-
+        active_models | length > 0 or
+        image_generation_service is defined
 
     - name: Show compose output
       ansible.builtin.debug:
         var: compose_up.stderr_lines
-      when: active_models | length > 0 and (compose_up.changed | default(false))
+      when: >-
+        (active_models | length > 0 or
+         image_generation_service is defined) and
+        (compose_up.changed | default(false))
 
     - name: Restart LiteLLM (config file changed)
       ansible.builtin.command:
@@ -357,8 +389,10 @@
 
     - name: Skip stack start (no models configured)
       ansible.builtin.debug:
-        msg: "No enabled models in vars.yaml — skipping stack start."
-      when: active_models | length == 0
+        msg: "No enabled models or image-generation service in vars.yaml — skipping stack start."
+      when: >-
+        active_models | length == 0 and not
+        (image_generation_service is defined)
 
     # ── 8. Health check ──────────────────────────────────────────────────────
     - name: Wait for LiteLLM to be ready
@@ -377,6 +411,18 @@
         return_content: true
       register: litellm_models
       when: active_models | length > 0
+
+    - name: Wait for Krea 2 image API to be ready
+      ansible.builtin.uri:
+        url: "http://localhost:{{ image_generation_service.internal_port }}{{ image_generation_service.healthcheck_path | default('/health') }}"
+        status_code: 200
+      register: krea_health
+      until: krea_health.status == 200
+      retries: 60
+      delay: 30
+      when:
+        - image_generation_service is defined
+        - image_generation_service.enabled | default(false)
 
     # ── 9. Warm up STT (load Whisper into GPU memory) ────────────────────────
     - name: Warm up STT

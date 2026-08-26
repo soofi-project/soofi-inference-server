@@ -276,7 +276,7 @@ models:
   # max_tokens generously — a tight limit truncates before the final channel
   # closes and returns empty content with finish_reason "stop".
   - name: "muse-glimmer-30b-multi"
-    enabled: true
+    enabled: false
     hf_name: "RedHatAI/Muse-Glimmer-30B-FP8-block"
     repository: "vllm/vllm-openai"
     tag: "muse-glimmer"
@@ -459,6 +459,39 @@ models:
       - "/app/chat_templates/qwen3_reranker.jinja"
     extraVolumes:
       - "{{ deploy_dir }}/models/chat_templates:/app/chat_templates:ro"
+
+
+# ── Image generation (Krea 2 Raw via vLLM-Omni) ────────────────────────────
+# Runs outside the standard vLLM/LiteLLM model loop so its pinned Omni runtime
+# cannot change or block the text-model serving stack. Access it directly on
+# port 8005. Krea 2 uses the Krea 2 Community License; access must be accepted
+# for the Hugging Face token configured in vault.yaml.
+image_generation_service:
+  enabled: true
+  container_name: "vllm-krea-2-raw"
+  image: "vllm/vllm-omni:v0.26.0"
+  hf_name: "krea/Krea-2-Raw"
+  internal_port: 8005
+  container_port: 8000
+  healthcheck_path: "/health"
+  healthcheck_start_period: "300s"
+  healthcheck_retries: 40
+  shm_size: "16gb"
+  gpu_devices: ["1"]
+  volumes:
+    - "{{ deploy_dir }}/models/hf_cache:/root/.cache/huggingface"
+  environment:
+    - "HUGGING_FACE_HUB_TOKEN={{ hf_token }}"
+    - "HF_TOKEN={{ hf_token }}"
+    - "HF_HUB_DISABLE_XET=1"
+  command:
+    - "vllm"
+    - "serve"
+    - "krea/Krea-2-Raw"
+    - "--omni"
+    - "--enforce-eager"
+    - "--port"
+    - "8000"
 
 
 # ── STT Service (speaches / faster-whisper) ──────────────────────────────────

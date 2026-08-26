@@ -4,11 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-Infrastructure-as-code for a self-hosted AI inference server: a 2x NVIDIA H200 NVL machine (`gpu-server-01`, 10.2.10.33, user `mrk`) serving LLMs via vLLM, fronted by LiteLLM (OpenAI-compatible API, port 4000, no auth) and Open WebUI (port 3000). Provisioned with Ansible, operated with Docker Compose. There is no application code, build step, or test suite — `./scripts/deploy.sh --check` (Ansible dry-run) is the closest thing to a test.
+Infrastructure-as-code for a self-hosted AI inference server: a 2x NVIDIA H200 NVL machine (`gpu-server-01`, 10.2.10.33, user `mrk`) serving LLMs via vLLM, fronted by LiteLLM (OpenAI-compatible API, port 4000, no auth) and Open WebUI (port 3000). Provisioned with Ansible, operated with Docker Compose. There is no application code or build step. `pytest -q` runs local IaC/rendering tests; `./scripts/deploy.sh --check` is the Ansible dry-run.
 
 ## Commands
 
 ```bash
+python -m pip install -r requirements-test.txt
+pytest -q
+RUN_LIVE_KREA2_E2E=1 pytest -q tests/test_krea2_live.py
+
 ./scripts/deploy.sh                    # Full deployment (default backend: stack)
 ./scripts/deploy.sh --check            # Dry-run
 ./scripts/deploy.sh --limit gpu-server-01

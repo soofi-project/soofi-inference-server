@@ -228,6 +228,11 @@ services:
       - inference-net
 
 {% endfor %}
+{% if image_generation_service is defined and image_generation_service.enabled | default(false) %}
+{# OpenAI-compatible image API, served directly rather than through LiteLLM so
+   its vLLM-Omni runtime and startup lifecycle are isolated from text models. #}
+{{ render_service(image_generation_service) }}
+{% endif %}
 {% if stt_service is defined %}
 {{ render_service(stt_service) }}
 {% endif %}

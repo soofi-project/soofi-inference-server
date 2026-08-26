@@ -28,9 +28,12 @@ H200 #0   H200 #1  H200 #0  H200 #1
 (141 GB)  (141 GB)
 ```
 
-LiteLLM is the single external endpoint (port 4000). Each model gets its own
-`vllm/vllm-openai` container reachable only within the Docker network.
-Open WebUI is included for browser-based chat.
+LiteLLM is the external endpoint for text, embedding, reranking, and speech
+models (port 4000). Each standard model gets its own `vllm/vllm-openai`
+container reachable within the Docker network. Krea 2 image generation is the
+intentional exception: it uses a separately pinned vLLM-Omni container and a
+direct API on port 8005 so it cannot change or block the existing LiteLLM
+serving path. Open WebUI is included for browser-based chat.
 
 ## Quickstart (local Docker Compose)
 
@@ -92,11 +95,26 @@ soofi-inference-server/
 │   ├── 01-os-setup.md
 │   ├── 02-nvidia-setup.md
 │   └── 03-docker-deployment.md
+├── tests/                              # IaC rendering and opt-in live E2E tests
+├── pytest.ini                          # Pytest marker configuration
+├── requirements-test.txt               # Local test dependencies
 └── scripts/
     ├── deploy.sh                      # Ansible deployment entrypoint
     ├── edit-vault.sh                  # Edit Ansible Vault secrets
     └── remove-model.sh                # Interactive model removal (config + HF cache)
 ```
+
+## Tests
+
+Install the small local test toolchain and run the IaC/rendering suite:
+
+```bash
+python -m pip install -r requirements-test.txt
+pytest -q
+```
+
+Live tests are opt-in because they call deployed services and consume GPU time.
+The Krea-specific command is documented with its endpoint below.
 
 ---
 
@@ -157,6 +175,8 @@ models:
 
 Use `enabled: false` to keep a model in the catalog without deploying it.
 Use `vllm:` with snake_case keys. Older `vllmConfig` entries are legacy and are ignored by the current `stack` templates.
+Top-level service blocks such as `image_generation_service` are rendered
+outside the standard model/LiteLLM loop and can pin their own container image.
 `vars.yaml` is the primary committed source for stack serving parameters, but `./scripts/deploy.sh -e key=value` can still override inventory values at deploy time.
 
 **`vault.yaml`** — AES256-encrypted, never commit in plaintext:
@@ -219,13 +239,14 @@ The `hf_token` in the vault is a real HuggingFace API token:
 - Create at huggingface.co → Settings → Access Tokens → **Fine-grained**, Read-only
 - Use a token from an **org account** for server deployments, not a personal token
 - Public models (Qwen, Mistral) work without a token — but rate-limiting applies
+- Krea 2 access requires accepting the Krea 2 Community License for the account associated with the token
 - If the token does not start with `hf_`, Ansible falls back to anonymous download silently
 
 ### Playbooks
 
 | Playbook | What it does |
 |----------|-------------|
-| `os_setup.yaml` | Base packages, NTP, UFW (ports 22/4000/3000), system limits, swap off |
+| `os_setup.yaml` | Base packages, NTP, UFW (including configured service ports), system limits, swap off |
 | `nvidia_setup.yaml` | Driver 590-server (from CUDA repo), Container Toolkit, nvidia-smi verify |
 | `docker_setup.yaml` | Docker Engine, NVIDIA runtime as default, mrk added to docker group |
 | `stack_deploy.yaml` | Generate stack configs from templates, pre-download model weights, start stack, health check |
@@ -309,6 +330,51 @@ curl http://gpu-server:4000/v1/chat/completions \
   -d '{"model": "qwen35-35b-fp8", "messages": [{"role": "user", "content": "Hello"}]}'
 
 ```
+
+### Krea 2 Raw image generation
+
+Krea runs as `vllm-krea-2-raw` on GPU 1 and is served directly at port 8005;
+it is not registered in LiteLLM. The service pins
+`vllm/vllm-omni:v0.26.0`, while all existing models keep their current
+per-model or `vllm/vllm-openai:v0.27.1` runtime. Do not replace the global
+vLLM image with the Omni image. See the
+[tagged vLLM-Omni Krea recipe](https://github.com/vllm-project/vllm-omni/blob/v0.26.0/recipes/krea/Krea-2.md)
+and accept the [checkpoint license](https://huggingface.co/krea/Krea-2-Raw)
+before deployment.
+
+The current capacity profile disables `muse-glimmer-30b-multi` and keeps the
+Qwen reranker and Falcon Perception enabled on GPU 1. The upstream known-good
+Raw settings are 28 inference steps, guidance scale 4.5, and 1024x1024 output:
+
+```bash
+curl -sS http://gpu-server:8005/v1/images/generations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "A small red fox standing in fresh snow, natural light",
+    "size": "1024x1024",
+    "num_inference_steps": 28,
+    "guidance_scale": 4.5,
+    "seed": 42
+  }' | jq -r '.data[0].b64_json' | base64 -d > krea2.png
+```
+
+Deploy and verify through the source-of-truth Ansible flow:
+
+```bash
+./scripts/deploy.sh --check --limit gpu-server-01
+./scripts/deploy.sh --limit gpu-server-01
+RUN_LIVE_KREA2_E2E=1 pytest -q tests/test_krea2_live.py
+```
+
+The first deployment pre-downloads roughly 30 GB of weights and can take time.
+Krea's downloader runs idempotently on every enabled deployment, reusing valid
+cached blobs and resuming missing ones. Xet is deliberately disabled for this
+gated checkpoint because affected Hugging Face Xet clients can leave a
+metadata-only snapshot and fail before downloading large weight files. The
+live test performs one real 28-step generation, decodes the returned base64,
+and verifies that it is a 1024x1024 PNG. Override the endpoint with
+`KREA2_BASE_URL` or the request timeout with `KREA2_REQUEST_TIMEOUT` when
+needed.
 
 Soofi Trainer integration (in `soofi-trainer/.env`):
 ```bash
