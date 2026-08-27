@@ -6,7 +6,7 @@
 
 - **Service boundary**: Deploy a dedicated ComfyUI service on GPU 1 of `gpu-server-01`. Keep the existing Krea Raw vLLM-Omni service available but disabled by default.
 - **Routes**: Serve the browser and native ComfyUI HTTP/WebSocket API at `http://gpu-server-01:8188` and `http://10.2.10.33:8188`. Do not register ComfyUI in LiteLLM.
-- **Runtime**: Build `soofi/comfyui-krea2:v0.30.0-torch2.13.0-cu130` from pinned ComfyUI v0.30.0, Python 3.12, PyTorch 2.13/torchvision 0.28, TorchAudio 2.11, and CUDA 13.0. TorchAudio 2.11 uses the stable ABI for PyTorch 2.11 and newer; there is no TorchAudio 2.13 wheel on the CUDA 13.0 index. Use only ComfyUI core nodes.
+- **Runtime**: Build `soofi/comfyui-krea2:v0.30.0-torch2.13.0-cu130` from pinned ComfyUI v0.30.0, Python 3.12, PyTorch 2.13/torchvision 0.28, TorchAudio 2.11, and CUDA 13.0. TorchAudio 2.11 uses the stable ABI for PyTorch 2.11 and newer; there is no TorchAudio 2.13 wheel on the CUDA 13.0 index. Set `TRITON_CACHE_DIR=/tmp/triton` for writable first-run kernel compilation under the unprivileged service UID, and include `gcc` plus `libc6-dev` so Triton can compile its CUDA driver-stub Python extension without disabling Torch's native JIT. Use only ComfyUI core nodes.
 - **Execution policy**: Run with `--multi-user --disable-api-nodes`, one shared GPU queue, and no cloud/partner API nodes.
 - **Storage**: Persist inputs, outputs, profiles, and workflows under `/home/mrk/image-gen-data`. Store verified model weights under `/opt/soofi/models/comfyui` and mount them read-only at runtime.
 - **Network policy**: Expose unauthenticated HTTP port 8188 to every host that can route to `gpu-server-01`. Document that it must never be forwarded to the public internet.

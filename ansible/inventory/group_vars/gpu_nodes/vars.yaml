@@ -536,6 +536,8 @@ comfyui_service:
     - "/home/mrk/image-gen-data/input:/comfyui/input"
     - "/home/mrk/image-gen-data/output:/comfyui/output"
     - "/home/mrk/image-gen-data/user:/comfyui/user"
+  environment:
+    - "TRITON_CACHE_DIR=/tmp/triton"
   command:
     - "--listen"
     - "0.0.0.0"

@@ -31,6 +31,13 @@ RUN git clone --branch "${COMFYUI_VERSION}" --depth 1 \
     && python -c "from importlib.resources import files; p = files('comfyui_workflow_templates_json').joinpath('templates/image_krea2_turbo_int8_image_style_reference.json'); assert p.is_file(), f'missing official Krea 2 style-reference template: {p}'" \
     && python -c "import json; from importlib.resources import files; p = files('comfyui_workflow_templates_json').joinpath('templates/index.json'); entries = [t for category in json.loads(p.read_text()) for t in category.get('templates', []) if t.get('name') == 'image_krea2_turbo_int8_image_style_reference']; assert entries and entries[0].get('title') == 'Krea-2 Int8: Image Style Reference', 'official Krea 2 style-reference template is missing from the Template Library index'"
 
+# Triton JIT-compiles its CUDA driver stub as a Python extension at runtime.
+# Keep this after the heavyweight Python layer so toolchain updates preserve
+# that layer's cache.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN mkdir -p /comfyui/models /comfyui/input /comfyui/output /comfyui/user /tmp/comfyui \
     && chmod 1777 /tmp/comfyui
 

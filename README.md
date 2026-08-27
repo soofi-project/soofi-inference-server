@@ -376,6 +376,11 @@ with the failing path and expected/actual values.
 The custom image pins PyTorch 2.13, torchvision 0.28, and TorchAudio 2.11 from
 the CUDA 13.0 wheel index. TorchAudio 2.11 deliberately differs because its
 stable ABI supports PyTorch 2.11 and newer and the index has no 2.13 wheel.
+The service sets `TRITON_CACHE_DIR=/tmp/triton` so first-run text-encoder and
+prompt-enhancement kernel compilation has a writable cache while ComfyUI runs
+as the unprivileged host user. The image includes `gcc` and `libc6-dev` for
+Triton's runtime CUDA driver-stub Python-extension compilation; Torch's native
+JIT remains enabled.
 
 Deploy and run the mandatory native-API E2E:
 

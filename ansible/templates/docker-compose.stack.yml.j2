@@ -260,6 +260,11 @@ services:
       - {{ vol }}
 {% endfor %}
 
+    environment:
+{% for env in comfyui_service.environment %}
+      - {{ env }}
+{% endfor %}
+
     command: {{ comfyui_service.command | tojson }}
 
     healthcheck:

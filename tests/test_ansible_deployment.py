@@ -198,6 +198,7 @@ def test_comfyui_image_pins_the_approved_compatible_local_runtime():
     assert '"torchvision==${TORCHVISION_VERSION}"' in dockerfile
     assert '"torchaudio==${TORCHAUDIO_VERSION}"' in dockerfile
     assert "https://download.pytorch.org/whl/cu130" in dockerfile
+    assert "apt-get install -y --no-install-recommends gcc libc6-dev" in dockerfile
     assert "m.version('comfyui-workflow-templates') == '0.11.27'" in dockerfile
     assert 'ENTRYPOINT ["python", "main.py"]' in dockerfile
 

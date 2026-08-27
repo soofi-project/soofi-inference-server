@@ -120,6 +120,7 @@ def test_comfyui_renders_as_an_independent_gpu_service():
     assert comfyui["restart"] == "unless-stopped"
     assert comfyui["init"] is True
     assert comfyui["ports"] == ["8188:8188"]
+    assert comfyui["environment"] == ["TRITON_CACHE_DIR=/tmp/triton"]
     assert comfyui["deploy"]["resources"]["reservations"]["devices"][0][
         "device_ids"
     ] == ["1"]
