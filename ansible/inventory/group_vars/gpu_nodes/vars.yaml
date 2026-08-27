@@ -41,6 +41,11 @@ custom_images:
   - repository: "soofi/falcon-perception"
     tag: "v1.0.0-lowmem1"
     dockerfile: "Dockerfile.falcon-perception"
+  # ComfyUI runtime for the local Krea 2 Turbo style-reference workflow.
+  # Keep this tag, the Dockerfile pins, and comfyui_service.image in sync.
+  - repository: "soofi/comfyui-krea2"
+    tag: "v0.30.0-torch2.13.0-cu130"
+    dockerfile: "Dockerfile.comfyui-krea2"
 
 # Shared parser/tooling presets for model families.
 parser_profiles:
@@ -467,7 +472,7 @@ models:
 # port 8005. Krea 2 uses the Krea 2 Community License; access must be accepted
 # for the Hugging Face token configured in vault.yaml.
 image_generation_service:
-  enabled: true
+  enabled: false
   container_name: "vllm-krea-2-raw"
   image: "vllm/vllm-omni:v0.26.0"
   hf_name: "krea/Krea-2-Raw"
@@ -492,6 +497,64 @@ image_generation_service:
     - "--enforce-eager"
     - "--port"
     - "8000"
+
+
+# ── Image generation (Krea 2 Turbo style reference via ComfyUI) ─────────────
+# Browser and native ComfyUI API, intentionally independent from LiteLLM.
+# This endpoint is unauthenticated. Never forward port 8188 to the public
+# internet; it is intended only for trusted hosts that can route to this server.
+comfyui_service:
+  enabled: true
+  user: "mrk"
+  container_name: "comfyui-krea2"
+  image: "soofi/comfyui-krea2:v0.30.0-torch2.13.0-cu130"
+  internal_port: 8188
+  container_port: 8188
+  healthcheck_path: "/system_stats"
+  healthcheck_start_period: "120s"
+  healthcheck_retries: 20
+  shm_size: "16gb"
+  gpu_devices: ["1"]
+  models_dir: "{{ deploy_dir }}/models/comfyui"
+  model_base_url: "https://huggingface.co/Comfy-Org/Krea-2/resolve/main"
+  data_dir: "/home/mrk/image-gen-data"
+  models:
+    - path: "diffusion_models/krea2_turbo_int8_convrot.safetensors"
+      size: 13492686496
+      sha256: "8e4eeda70dd5037ab1ba2bef6b417f9f901e26093117cf397f741fc1fdaaf3f1"
+    - path: "text_encoders/qwen3vl_4b_fp8_scaled.safetensors"
+      size: 5242467968
+      sha256: "54bd5144df0bbc25dd6ccadfcb826b521445a1b06ae5a42570bdd2974ca87094"
+    - path: "vae/qwen_image_vae.safetensors"
+      size: 253806246
+      sha256: "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f"
+    - path: "loras/krea2_style_reference.safetensors"
+      size: 457111760
+      sha256: "f50df5a9e62e4be8aa926a63dd5bb1a64770c4004f763c1208007ae13daa82b8"
+  volumes:
+    - "{{ deploy_dir }}/models/comfyui:/comfyui/models:ro"
+    - "/home/mrk/image-gen-data/input:/comfyui/input"
+    - "/home/mrk/image-gen-data/output:/comfyui/output"
+    - "/home/mrk/image-gen-data/user:/comfyui/user"
+  command:
+    - "--listen"
+    - "0.0.0.0"
+    - "--port"
+    - "8188"
+    - "--multi-user"
+    - "--disable-api-nodes"
+    - "--models-directory"
+    - "/comfyui/models"
+    - "--input-directory"
+    - "/comfyui/input"
+    - "--output-directory"
+    - "/comfyui/output"
+    - "--temp-directory"
+    - "/tmp/comfyui"
+    - "--user-directory"
+    - "/comfyui/user"
+    - "--database-url"
+    - "sqlite:////comfyui/user/comfyui.db"
 
 
 # ── STT Service (speaches / faster-whisper) ──────────────────────────────────

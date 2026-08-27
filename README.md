@@ -30,10 +30,11 @@ H200 #0   H200 #1  H200 #0  H200 #1
 
 LiteLLM is the external endpoint for text, embedding, reranking, and speech
 models (port 4000). Each standard model gets its own `vllm/vllm-openai`
-container reachable within the Docker network. Krea 2 image generation is the
-intentional exception: it uses a separately pinned vLLM-Omni container and a
-direct API on port 8005 so it cannot change or block the existing LiteLLM
-serving path. Open WebUI is included for browser-based chat.
+container reachable within the Docker network. Image generation is independent
+from LiteLLM: ComfyUI serves the default local Krea 2 Turbo style-reference
+workflow on port 8188, while the older Krea 2 Raw vLLM-Omni service remains an
+optional, disabled service on port 8005. Open WebUI is included for
+browser-based chat.
 
 ## Quickstart (local Docker Compose)
 
@@ -175,8 +176,9 @@ models:
 
 Use `enabled: false` to keep a model in the catalog without deploying it.
 Use `vllm:` with snake_case keys. Older `vllmConfig` entries are legacy and are ignored by the current `stack` templates.
-Top-level service blocks such as `image_generation_service` are rendered
-outside the standard model/LiteLLM loop and can pin their own container image.
+Top-level service blocks such as `comfyui_service` and
+`image_generation_service` are rendered outside the standard model/LiteLLM
+loop and can pin their own container image.
 `vars.yaml` is the primary committed source for stack serving parameters, but `./scripts/deploy.sh -e key=value` can still override inventory values at deploy time.
 
 **`vault.yaml`** — AES256-encrypted, never commit in plaintext:
@@ -239,7 +241,7 @@ The `hf_token` in the vault is a real HuggingFace API token:
 - Create at huggingface.co → Settings → Access Tokens → **Fine-grained**, Read-only
 - Use a token from an **org account** for server deployments, not a personal token
 - Public models (Qwen, Mistral) work without a token — but rate-limiting applies
-- Krea 2 access requires accepting the Krea 2 Community License for the account associated with the token
+- Krea 2 use is governed by the [Krea 2 Community License](https://www.krea.ai/krea-2-licensing)
 - If the token does not start with `hf_`, Ansible falls back to anonymous download silently
 
 ### Playbooks
@@ -331,34 +333,51 @@ curl http://gpu-server:4000/v1/chat/completions \
 
 ```
 
-### Krea 2 Raw image generation
+### Krea 2 Turbo style reference with ComfyUI
 
-Krea runs as `vllm-krea-2-raw` on GPU 1 and is served directly at port 8005;
-it is not registered in LiteLLM. The service pins
-`vllm/vllm-omni:v0.26.0`, while all existing models keep their current
-per-model or `vllm/vllm-openai:v0.27.1` runtime. Do not replace the global
-vLLM image with the Omni image. See the
-[tagged vLLM-Omni Krea recipe](https://github.com/vllm-project/vllm-omni/blob/v0.26.0/recipes/krea/Krea-2.md)
-and accept the [checkpoint license](https://huggingface.co/krea/Krea-2-Raw)
-before deployment.
+ComfyUI runs as `comfyui-krea2` on physical GPU 1 and is served directly at:
 
-The current capacity profile disables `muse-glimmer-30b-multi` and keeps the
-Qwen reranker and Falcon Perception enabled on GPU 1. The upstream known-good
-Raw settings are 28 inference steps, guidance scale 4.5, and 1024x1024 output:
+- Browser and native API: `http://gpu-server-01:8188` or `http://10.2.10.33:8188`
+- Health: `http://10.2.10.33:8188/system_stats`
 
-```bash
-curl -sS http://gpu-server:8005/v1/images/generations \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "A small red fox standing in fresh snow, natural light",
-    "size": "1024x1024",
-    "num_inference_steps": 28,
-    "guidance_scale": 4.5,
-    "seed": 42
-  }' | jq -r '.data[0].b64_json' | base64 -d > krea2.png
-```
+**Security warning:** ComfyUI has no authentication or HTTPS and port 8188 is
+allowed from every host that can route to `gpu-server-01`. Never forward this
+port to the public internet. The deployment uses `--disable-api-nodes`, so the
+workflow uses local core nodes and does not send inputs to Comfy cloud/partner
+nodes.
 
-Deploy and verify through the source-of-truth Ansible flow:
+Open the Template Library and select **Krea-2 Int8: Image Style Reference**.
+The official template supports 1K–2K output choices; the mandatory automated
+acceptance run uses 1024×1024, one reference image, eight Turbo steps, and
+prompt enhancement disabled. `--multi-user` gives each trusted researcher a
+separate profile, but the GPU queue and input/output storage are shared.
+Uploaded and generated data is retained indefinitely and must be
+reviewed/managed by the research team.
+Use is subject to the
+[Krea 2 Community License](https://www.krea.ai/krea-2-licensing); researchers
+are responsible for human review and acceptable use of prompts, references,
+and outputs.
+
+Persistent storage on `gpu-server-01`:
+
+| Content | Host path | Container access |
+|---|---|---|
+| Verified model weights | `/opt/soofi/models/comfyui` | read-only |
+| Uploaded references | `/home/mrk/image-gen-data/input` | read/write |
+| Generated images | `/home/mrk/image-gen-data/output` | read/write |
+| Profiles, workflows, SQLite state | `/home/mrk/image-gen-data/user` | read/write |
+
+The four pinned model files total about 19.4 GB. The first enabled deployment
+downloads them directly from `Comfy-Org/Krea-2`; interrupted downloads resume
+from `.partial` files. Existing and downloaded files must match the exact size
+and SHA-256 manifest before the container starts. A mismatch stops deployment
+with the failing path and expected/actual values.
+
+The custom image pins PyTorch 2.13, torchvision 0.28, and TorchAudio 2.11 from
+the CUDA 13.0 wheel index. TorchAudio 2.11 deliberately differs because its
+stable ABI supports PyTorch 2.11 and newer and the index has no 2.13 wheel.
+
+Deploy and run the mandatory native-API E2E:
 
 ```bash
 ./scripts/deploy.sh --check --limit gpu-server-01
@@ -366,15 +385,40 @@ Deploy and verify through the source-of-truth Ansible flow:
 RUN_LIVE_KREA2_E2E=1 pytest -q tests/test_krea2_live.py
 ```
 
-The first deployment pre-downloads roughly 30 GB of weights and can take time.
-Krea's downloader runs idempotently on every enabled deployment, reusing valid
-cached blobs and resuming missing ones. Xet is deliberately disabled for this
-gated checkpoint because affected Hugging Face Xet clients can leave a
-metadata-only snapshot and fail before downloading large weight files. The
-live test performs one real 28-step generation, decodes the returned base64,
-and verifies that it is a 1024x1024 PNG. Override the endpoint with
-`KREA2_BASE_URL` or the request timeout with `KREA2_REQUEST_TIMEOUT` when
-needed.
+The live test uploads a deterministic PNG via `/upload/image`, queues the
+pinned workflow through `/prompt`, polls `/history/{prompt_id}`, retrieves the
+result through `/view`, and verifies a complete 1024×1024 PNG. Override the
+endpoint with `COMFYUI_BASE_URL` or the overall deadline with
+`COMFYUI_E2E_TIMEOUT`.
+
+Operational checks and troubleshooting:
+
+```bash
+curl -f http://10.2.10.33:8188/system_stats
+ssh mrk@10.2.10.33 "docker logs --tail 200 comfyui-krea2"
+ssh mrk@10.2.10.33 "docker inspect comfyui-krea2 --format '{{json .State.Health}}'"
+```
+
+If a model verification error occurs, use the reported path/checksum to inspect
+the file; do not bypass verification. For startup or CUDA errors, inspect the
+container logs and confirm physical GPU 1 is available. For a UI-only issue,
+first verify `/system_stats`, then reload the browser and reselect the named
+profile.
+
+To roll back, set `comfyui_service.enabled: false` and deploy again. Compose
+removes the orphaned container and Ansible removes the UFW rule, but models,
+uploads, outputs, profiles, workflows, and SQLite state remain on disk. To use
+the older Raw API instead, also set `image_generation_service.enabled: true`;
+concurrent Raw and ComfyUI operation is not an accepted capacity profile.
+
+### Optional Krea 2 Raw service
+
+The retained `image_generation_service` runs `vllm-krea-2-raw` directly on
+port 8005 with `vllm/vllm-omni:v0.26.0`. It is disabled by default and remains
+outside LiteLLM. See the
+[tagged vLLM-Omni recipe](https://github.com/vllm-project/vllm-omni/blob/v0.26.0/recipes/krea/Krea-2.md)
+and its [checkpoint terms](https://huggingface.co/krea/Krea-2-Raw) before
+enabling it. Do not replace the global vLLM image with the Omni image.
 
 Soofi Trainer integration (in `soofi-trainer/.env`):
 ```bash

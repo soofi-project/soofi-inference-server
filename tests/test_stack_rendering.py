@@ -40,9 +40,14 @@ def _resolve_inventory_templates(value, environment, variables):
     return value
 
 
-def _render(template_name, omit_image_generation_enabled=False):
+def _render(template_name, overrides=None, omit_image_generation_enabled=False):
     variables = yaml.safe_load(VARS_PATH.read_text())
     variables["hf_token"] = "hf_test_token"
+    variables["ansible_facts"] = {
+        "getent_passwd": {"mrk": ["x", "1000", "1000", "", "/home/mrk", "/bin/bash"]}
+    }
+    if overrides:
+        variables = _combine(variables, overrides, recursive=True)
     if omit_image_generation_enabled:
         variables["image_generation_service"].pop("enabled")
 
@@ -61,7 +66,10 @@ def _render(template_name, omit_image_generation_enabled=False):
 
 
 def test_krea_raw_renders_as_failure_isolated_vllm_omni_service():
-    compose = _render("docker-compose.stack.yml.j2")
+    compose = _render(
+        "docker-compose.stack.yml.j2",
+        overrides={"image_generation_service": {"enabled": True}},
+    )
     litellm = _render("litellm-config.stack.yaml.j2")
 
     krea = compose["services"]["vllm-krea-2-raw"]
@@ -98,6 +106,72 @@ def test_krea_raw_renders_as_failure_isolated_vllm_omni_service():
     assert "krea-2-raw" not in {
         model["model_name"] for model in litellm["model_list"]
     }
+
+
+def test_comfyui_renders_as_an_independent_gpu_service():
+    compose = _render("docker-compose.stack.yml.j2")
+    litellm = _render("litellm-config.stack.yaml.j2")
+
+    comfyui = compose["services"]["comfyui-krea2"]
+    assert comfyui["image"] == (
+        "soofi/comfyui-krea2:v0.30.0-torch2.13.0-cu130"
+    )
+    assert comfyui["user"] == "1000:1000"
+    assert comfyui["restart"] == "unless-stopped"
+    assert comfyui["init"] is True
+    assert comfyui["ports"] == ["8188:8188"]
+    assert comfyui["deploy"]["resources"]["reservations"]["devices"][0][
+        "device_ids"
+    ] == ["1"]
+    assert comfyui["volumes"] == [
+        "/opt/soofi/models/comfyui:/comfyui/models:ro",
+        "/home/mrk/image-gen-data/input:/comfyui/input",
+        "/home/mrk/image-gen-data/output:/comfyui/output",
+        "/home/mrk/image-gen-data/user:/comfyui/user",
+    ]
+    assert comfyui["command"] == [
+        "--listen",
+        "0.0.0.0",
+        "--port",
+        "8188",
+        "--multi-user",
+        "--disable-api-nodes",
+        "--models-directory",
+        "/comfyui/models",
+        "--input-directory",
+        "/comfyui/input",
+        "--output-directory",
+        "/comfyui/output",
+        "--temp-directory",
+        "/tmp/comfyui",
+        "--user-directory",
+        "/comfyui/user",
+        "--database-url",
+        "sqlite:////comfyui/user/comfyui.db",
+    ]
+    assert comfyui["shm_size"] == "16gb"
+    assert comfyui["healthcheck"]["test"] == [
+        "CMD",
+        "curl",
+        "-f",
+        "http://localhost:8188/system_stats",
+    ]
+    assert "comfyui-krea2" not in compose["services"]["litellm"]["depends_on"]
+    assert "comfyui-krea2" not in {
+        model["model_name"] for model in litellm["model_list"]
+    }
+
+
+def test_disabling_comfyui_removes_only_its_service():
+    compose = _render(
+        "docker-compose.stack.yml.j2",
+        overrides={"comfyui_service": {"enabled": False}},
+    )
+
+    assert "comfyui-krea2" not in compose["services"]
+    assert "vllm-krea-2-raw" not in compose["services"]
+    assert "vllm-qwen3-reranker-4b" in compose["services"]
+    assert "falcon-perception" in compose["services"]
 
 
 def test_krea_capacity_is_freed_without_changing_existing_runtimes():

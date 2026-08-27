@@ -233,6 +233,47 @@ services:
    its vLLM-Omni runtime and startup lifecycle are isolated from text models. #}
 {{ render_service(image_generation_service) }}
 {% endif %}
+{% if comfyui_service is defined and comfyui_service.enabled | default(false) %}
+  # ===========================================================================
+  # ComfyUI: local Krea 2 Turbo style-reference browser and native API
+  # ===========================================================================
+  {{ comfyui_service.container_name }}:
+    image: {{ comfyui_service.image }}
+    container_name: {{ comfyui_service.container_name }}
+    user: "{{ ansible_facts.getent_passwd[comfyui_service.user][1] }}:{{ ansible_facts.getent_passwd[comfyui_service.user][2] }}"
+    restart: unless-stopped
+    init: true
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: {{ comfyui_service.gpu_devices | tojson }}
+              capabilities: [gpu]
+
+    ports:
+      - "{{ comfyui_service.internal_port }}:{{ comfyui_service.container_port }}"
+
+    volumes:
+{% for vol in comfyui_service.volumes %}
+      - {{ vol }}
+{% endfor %}
+
+    command: {{ comfyui_service.command | tojson }}
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:{{ comfyui_service.container_port }}{{ comfyui_service.healthcheck_path }}"]
+      interval: 30s
+      timeout: 10s
+      retries: {{ comfyui_service.healthcheck_retries }}
+      start_period: {{ comfyui_service.healthcheck_start_period }}
+
+    shm_size: '{{ comfyui_service.shm_size }}'
+
+    networks:
+      - inference-net
+{% endif %}
 {% if stt_service is defined %}
 {{ render_service(stt_service) }}
 {% endif %}
