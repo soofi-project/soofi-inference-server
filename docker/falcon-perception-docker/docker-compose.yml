@@ -1,0 +1,38 @@
+services:
+  falcon-perception:
+    image: falcon-perception:cuda128
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        EXTRAS: server,demo,ocr
+        TORCH_INDEX_URL: https://download.pytorch.org/whl/cu128
+    ports:
+      - "7860:7860"
+    gpus: all
+    ipc: host
+    shm_size: "16gb"
+    environment:
+      HF_MODEL_ID: tiiuae/Falcon-Perception
+      HF_REVISION: main
+      # Use bfloat16 on Ampere/Hopper-class GPUs to reduce VRAM. Use float32 for maximum compatibility.
+      DTYPE: bfloat16
+      NUM_GPUS: "-1"
+      COMPILE: "true"
+      CUDAGRAPH: "true"
+      HF_HOME: /models/huggingface
+      HF_HUB_ENABLE_HF_TRANSFER: "1"
+      XDG_CACHE_HOME: /cache
+      TORCHINDUCTOR_CACHE_DIR: /cache/torchinductor
+      TRITON_CACHE_DIR: /cache/triton
+      IMAGES_DIR: /data/images
+    volumes:
+      - hf-cache:/models/huggingface
+      - torch-cache:/cache
+      - falcon-images:/data/images
+    restart: unless-stopped
+
+volumes:
+  hf-cache:
+  torch-cache:
+  falcon-images:

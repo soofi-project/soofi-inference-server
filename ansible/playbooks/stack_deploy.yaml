@@ -62,6 +62,53 @@
         mode: "0644"
       register: litellm_config
 
+    # ── 2b. Custom images ─────────────────────────────────────────────────────
+    # Some models need vLLM plugins missing from the stock image (e.g. Cosmos3's
+    # vllm-cosmos3 architecture plugin) and some services have no upstream image
+    # at all (Falcon-Perception). Their images are built on the host from
+    # docker/Dockerfile.* — only when an enabled model or a service block
+    # references them. Must run before the model pre-download, which uses the
+    # model's image as hf client.
+    # Service blocks reference images as "repo:tag" strings — strip the tag so
+    # they match custom_images the same way model repositories do.
+    - name: Select custom images referenced by enabled models or services
+      ansible.builtin.set_fact:
+        active_custom_images: >-
+          {{ custom_images | default([])
+             | selectattr('repository', 'in',
+                          (active_models | selectattr('repository', 'defined')
+                                         | map(attribute='repository') | list)
+                          + ([stt_service.image | default(''),
+                              tts_service.image | default(''),
+                              falcon_perception_service.image | default('')]
+                             | select() | map('regex_replace', ':[^:]*$', '') | list))
+             | list }}
+
+    - name: Copy Dockerfiles for custom images
+      ansible.builtin.copy:
+        src: "/repo/docker/{{ item.dockerfile }}"
+        dest: "{{ deploy_dir }}/docker/{{ item.dockerfile }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+      loop: "{{ active_custom_images }}"
+      loop_control:
+        label: "{{ item.dockerfile }}"
+
+    - name: Build custom images (layer-cached after first run)
+      ansible.builtin.command:
+        cmd: >-
+          docker build
+          -f {{ deploy_dir }}/docker/{{ item.dockerfile }}
+          -t {{ item.repository }}:{{ item.tag }}
+          {{ deploy_dir }}/docker
+      loop: "{{ active_custom_images }}"
+      loop_control:
+        label: "{{ item.repository }}:{{ item.tag }}"
+      async: 3600
+      poll: 15
+      changed_when: false  # compose recreates the container when the image ID changes
+
     # ── 3. Model pre-download ─────────────────────────────────────────────────
     # Downloads model weights before vLLM starts so the health check is not
     # blocked by a multi-hour initial download. Skipped if cache exists (idempotent).
@@ -97,7 +144,7 @@
     - name: Hint — monitor download progress in a separate terminal
       ansible.builtin.debug:
         msg: "To monitor download progress: ssh {{ ansible_user }}@{{ ansible_host }} 'docker logs -f $(docker ps -lq)'"
-      when: model_caches.results | selectattr('matched', 'equalto', 0) | list | length > 0
+      when: (model_caches.results | default([])) | selectattr('matched', 'equalto', 0) | list | length > 0
 
     - name: Download model weights from HuggingFace
       ansible.builtin.command:
@@ -112,8 +159,8 @@
           {% endif %}
           {{ item.item.repository | default(vllm_defaults.repository) }}:{{ item.item.tag | default(vllm_defaults.tag) }}
           download {{ item.item.hf_name }}
-      when: item.matched == 0
-      loop: "{{ model_caches.results }}"
+      when: item.matched == 0 and not (item.item.is_local | default(false))
+      loop: "{{ model_caches.results | default([]) }}"
       loop_control:
         label: "{{ item.item.hf_name }}"
       async: 7200
@@ -136,6 +183,52 @@
       loop_control:
         label: "{{ item.path | basename }}"
       when: incomplete_files.files | length > 0
+
+    - name: Ensure HF cache is writable by all containers
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}/models/hf_cache"
+        mode: "a+rwX"
+        recurse: true
+      when: (model_caches.results | default([])) | selectattr('matched', 'equalto', 0) | list | length > 0
+
+    # ── 3b. Falcon-Perception assets ──────────────────────────────────────────
+    # Same pre-download rationale as step 3, which is vLLM-specific (it derives
+    # hf_name and the hf client image from model entries). The falcon image
+    # bundles the hf CLI and sets HF_HOME=/models/huggingface.
+    - name: Create Falcon-Perception compile cache directory
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}/models/falcon_perception_cache"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+      when: falcon_perception_service is defined
+
+    - name: Check if Falcon-Perception weights are already cached
+      ansible.builtin.find:
+        paths: "{{ deploy_dir }}/models/hf_cache/hub/models--{{ falcon_perception_service.hf_name | replace('/', '--') }}/snapshots"
+        file_type: directory
+        recurse: false
+      register: falcon_cache
+      failed_when: false
+      when: falcon_perception_service is defined
+
+    - name: Download Falcon-Perception weights from HuggingFace
+      ansible.builtin.command:
+        cmd: >-
+          docker run --rm
+          --entrypoint hf
+          -v {{ deploy_dir }}/models/hf_cache:/models/huggingface
+          {% if hf_token | default('') | regex_search('^hf_') %}
+          -e HF_TOKEN={{ hf_token }}
+          -e HUGGING_FACE_HUB_TOKEN={{ hf_token }}
+          {% endif %}
+          {{ falcon_perception_service.image }}
+          download {{ falcon_perception_service.hf_name }}
+      when: falcon_perception_service is defined and (falcon_cache.matched | default(0)) == 0
+      async: 7200
+      poll: 30
+      changed_when: true
 
     # ── 4. TTS assets (Piper voice models + XTTS cache) ──────────────────────
     - name: Create TTS model directories
@@ -182,16 +275,6 @@
         mode: "0644"
       when: tts_service is defined
 
-    # ── 5. HF cache permissions ──────────────────────────────────────────────
-    # vLLM runs as root, speaches as uid 1000 (ubuntu). Both need write access
-    # to the shared HF cache. Use mode 0777 so both users can read/write.
-    - name: Ensure HF cache is writable by all containers
-      ansible.builtin.file:
-        path: "{{ deploy_dir }}/models/hf_cache"
-        mode: "a+rwX"
-        recurse: true
-      when: model_caches.results | selectattr('matched', 'equalto', 0) | list | length > 0
-
     # ── 6. Reset Open WebUI when auth setting changes ─────────────────────────
     # Old user/session data in the volume blocks access when auth is toggled.
     # A marker file tracks the last deployed auth state to avoid unnecessary resets.
@@ -228,9 +311,32 @@
         mode: "0644"
 
     # ── 7. Start stack ───────────────────────────────────────────────────────
+
+    # ── 6b. Docling GPU service ──────────────────────────────────────────────
+    - name: Create docling service directory
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}/docling-service"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+      when: docling_service is defined and docling_service.enabled | default(true)
+
+    - name: Deploy docling service files
+      ansible.builtin.copy:
+        src: "docling-service/{{ item }}"
+        dest: "{{ deploy_dir }}/docling-service/{{ item }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+      loop:
+        - Dockerfile
+        - app.py
+      when: docling_service is defined and docling_service.enabled | default(true)
+
     - name: Start inference stack
       ansible.builtin.command:
-        cmd: docker compose -f {{ deploy_dir }}/docker/docker-compose.yml up -d --remove-orphans
+        cmd: docker compose -f {{ deploy_dir }}/docker/docker-compose.yml up -d --build --remove-orphans
       register: compose_up
       changed_when: >
         'Started' in (compose_up.stderr | default('')) or
@@ -289,5 +395,6 @@
         msg:
           - "LiteLLM API: http://{{ ansible_host }}:{{ litellm_port | default(4000) }}/v1"
           - "Open WebUI:  http://{{ ansible_host }}:{{ webui_port | default(3000) }}"
+          - "Docling GPU: http://{{ ansible_host }}:{{ docling_service.internal_port | default(8020) }}/health"
           - "Deployed models: {{ (litellm_models.json.data | map(attribute='id') | list) if litellm_models.json is defined else '(skipped in check mode)' }}"
       when: active_models | length > 0

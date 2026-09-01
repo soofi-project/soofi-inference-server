@@ -1,6 +1,7 @@
 # Deployment variables for gpu_nodes
 # Secrets (hf_token, litellm_master_key) are in vault.yaml — encrypt before committing:
 #   ansible-vault encrypt ansible/inventory/group_vars/gpu_nodes/vault.yaml
+# Parser reference (tool_call_parser / reasoning_parser choices): see PARSERS.md
 
 # NVIDIA stack versions
 nvidia_driver_version: "590"
@@ -10,20 +11,45 @@ cuda_version: "12-4"                  # apt format (dash-separated)
 deploy_dir: /opt/soofi
 
 # vLLM defaults — override per model if needed.
+# Bumped v0.21.0 (15 May 2026) → v0.27.1 (11 Aug 2026). Newest stable tag; brings
+# transformers 5.13.0 (vLLM #47867), PyTorch 2.13, and a lot of Qwen3.5/3.6 kernel
+# work (RMSNorm+all-reduce fusion, MoE reduce-scatter, H20 opt) that qwen36-27b-multi
+# benefits from. Deliberately NOT the `qwen38` branch build — that one is pinned on
+# the single model that needs it (see qwen38-27b-coding), so the rest of the stack
+# stays on a versioned tag.
 vllm_defaults:
   repository: "vllm/vllm-openai"
-  tag: "v0.20.1"
+  tag: "v0.27.1"
   config:
     tensor_parallel_size: 1
-    gpu_memory_utilization: 0.92
-    max_model_len: 131072
     dtype: "auto"
     enable_prefix_caching: true
     enable_chunked_prefill: true
 
+# Custom images — built on the GPU host by stack_deploy.yaml before the stack
+# starts, but only when an enabled model (via repository/tag) or a service
+# block (via image) references them. Dockerfiles live in docker/ at the repo root.
+custom_images:
+  # Tag mirrors the vLLM base image in Dockerfile.vllm-cosmos3 — keep the three in
+  # sync (here, the Dockerfile FROM, and the cosmos-3-nano model entry below).
+  - repository: "soofi/vllm-openai-cosmos3"
+    tag: "v0.27.1"
+    dockerfile: "Dockerfile.vllm-cosmos3"
+  # Falcon-Perception FastAPI server — based on upstream REPO_REF pinned in the
+  # Dockerfile, with a local low-memory server patch. Bump the tag when changing
+  # the patch or upstream ref so Compose recreates the container.
+  - repository: "soofi/falcon-perception"
+    tag: "v1.0.0-lowmem1"
+    dockerfile: "Dockerfile.falcon-perception"
+
 # Shared parser/tooling presets for model families.
 parser_profiles:
   qwen3:
+    enable_auto_tool_choice: true
+    tool_call_parser: "qwen3_xml"
+    reasoning_parser: "qwen3"
+
+  qwen3_coder:
     enable_auto_tool_choice: true
     tool_call_parser: "qwen3_coder"
     reasoning_parser: "qwen3"
@@ -31,12 +57,34 @@ parser_profiles:
   nemotron_v3:
     enable_auto_tool_choice: true
     tool_call_parser: "qwen3_coder"
-    reasoning_parser: "nemotron_v3"
+
+  soofi:
+    # Soofi-S-* are NVIDIA Nemotron-3-Nano fine-tunes (Soofi_Nano_V3_30B_A3B).
+    # tool_call_parser qwen3_coder is correct for Nemotron-3. The reasoning parser
+    # MUST be the custom nano_v3 (DeepSeekR1 subclass): plain deepseek_r1 assumes an
+    # implicit opening <think> and, with enable_thinking:false (no closing </think>),
+    # swallows the ENTIRE output — incl. tool calls — into reasoning_content, leaving
+    # content/tool_calls empty. nano_v3 swaps them back when thinking is off.
+    # Plugin file is mounted per model (extraVolumes → /opt/parsers/...). See PARSERS.md.
+    enable_auto_tool_choice: true
+    tool_call_parser: "qwen3_coder"
+    reasoning_parser: "nano_v3"
 
   minimax_m2:
     enable_auto_tool_choice: true
     tool_call_parser: "minimax_m2"
     reasoning_parser: "minimax_m2_append_think"
+
+  muse_glimmer:
+    # Muse-Glimmer emits neither JSON tool calls nor <think> tags — it frames
+    # every turn in channel-scoped markers (`to=self<|message|>`, ATEM-style
+    # <atem:invoke> blocks, closed with <|eom|>/<|eot|>). The two parsers are a
+    # package deal: the reasoning parser is what forces skip_special_tokens=False,
+    # and without it BOTH channels collapse into plain content (or nothing at
+    # all). Do not pair either one with a generic parser. See PARSERS.md.
+    enable_auto_tool_choice: true
+    tool_call_parser: "muse_glimmer"
+    reasoning_parser: "muse_glimmer"
 
 # Models to deploy — each gets its own vllm/vllm-openai container.
 # Set enabled: false to keep a model in the catalog without deploying it.
@@ -60,97 +108,254 @@ models:
 # ---- LLMs for the agents ------------
 
   - name: "qwen36-27b"
-    enabled: true
-    hf_name: "Qwen/Qwen3.6-27B-FP8" 
+    enabled: false
+    hf_name: "Qwen/Qwen3.6-27B-FP8"
     parser_profile: "qwen3"
-    gpu_ids: ["0"]
+    gpu_ids: ["1"]
     vllm:
       tensor_parallel_size: 1
-      max_num_seqs: 32           
-      gpu_memory_utilization: 0.5
-      max_model_len: 262144      
-      kv_cache_dtype: "auto"     
-      chat-template-kwargs: '{"preserve_thinking": true}'
-      speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
-      enable_auto_tool_choice: true
-      tool_call_parser: "qwen3_coder"
+      max_num_seqs: 8
+      gpu_memory_utilization: 0.45
+      max_model_len: 262144
+      kv_cache_dtype: "auto"
+      chat_template_kwargs: '{"enable_thinking": false}'
+   #   speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
       language_model_only: true
-
 
   - name: "qwen35-9b"
     enabled: false
-    gpu_ids: ["0"]
+    gpu_ids: ["1"]
     parser_profile: "qwen3"
     hf_name: "Qwen/Qwen3.5-9B"
     vllm:
-      gpu_memory_utilization: 0.15
+      gpu_memory_utilization: 0.45
       max_model_len: 262144
-      kv_cache_dtype: "auto"     
-      reasoning_parser: "qwen3" # Aktiviert die Thinking-Logik für 9B
+      kv_cache_dtype: "auto"
+      chat_template_kwargs: '{"enable_thinking": false}'      
+
 
   - name: "qwen35-4b"
     enabled: false
-    gpu_ids: ["1"]
+    gpu_ids: ["0"]
     parser_profile: "qwen3"
     hf_name: "Qwen/Qwen3.5-4B"
     vllm:
-      gpu_memory_utilization: 0.10
+      gpu_memory_utilization: 0.45
       max_model_len: 262144
-      kv_cache_dtype: "auto"     
-      reasoning_parser: "qwen3"
+      kv_cache_dtype: "auto"
+      chat_template_kwargs: '{"enable_thinking": false}'
 
   - name: "qwen35-2b"
     enabled: false
     gpu_ids: ["1"]
-    parser_profile: "qwen3" 
+    parser_profile: "qwen3"
     hf_name: "Qwen/Qwen3.5-2B"
     vllm:
-      gpu_memory_utilization: 0.15
+      gpu_memory_utilization: 0.45
       max_model_len: 262144
-      kv_cache_dtype: "auto"   
+      kv_cache_dtype: "auto"
+      chat_template_kwargs: '{"enable_thinking": false}'
 
   - name: "qwen35-08b"
     enabled: false
-    gpu_ids: ["1"]
-    parser_profile: "qwen3"  
+    gpu_ids: ["0"]
+    parser_profile: "qwen3"
     hf_name: "Qwen/Qwen3.5-0.8B"
     vllm:
-      gpu_memory_utilization: 0.1
+      gpu_memory_utilization: 0.35
       max_model_len: 262144
-      kv_cache_dtype: "auto"   
+      kv_cache_dtype: "auto"
+      chat_template_kwargs: '{"enable_thinking": false}'
+  
 
-
-
-  - name: "qwen35-122b-fp8"
-    enabled: false
-    hf_name: "Qwen/Qwen3.5-122B-A10B-FP8"
+  # Qwen3.8 is NOT in any tagged vLLM release, not even the current default:
+  # v0.27.1 (11 Aug 2026) predates it and only adds Qwen3.5 text-only dense/MoE.
+  # Support ships in the day-0 `qwen38` branch builds (pushed 12 Aug 2026), so this
+  # is the one model that has to run off a branch build rather than a version tag.
+  # It also satisfies the transformers >= 5.8.0 that this checkpoint's config.json
+  # requires. cu130 needs driver >= 580 (host runs 590).
+  # Note: `compose up` does not re-pull, so this tag is effectively pinned to the
+  # first pull; `docker pull vllm/vllm-openai:qwen38-x86_64-cu130` on the host to
+  # pick up a rebuild. Drop repository/tag once Qwen3.8 lands in a stable release.
+  - name: "qwen38-27b-coding"
+    enabled: true
+    hf_name: "Qwen/Qwen3.8-27B-FP8"
+    repository: "vllm/vllm-openai"
+    tag: "qwen38-x86_64-cu130"
+    parser_profile: "qwen3_coder"
     gpu_ids: ["0"]
-    parser_profile: "qwen3"
     vllm:
+      gpu_memory_utilization: 0.7
+      tensor_parallel_size: 1
+      max_num_seqs: 8
+      max_model_len: 120000
+      kv_cache_dtype: "fp8"
+      max_num_batched_tokens: 16384
+      enable_prefix_caching: true
+      limit_mm_per_prompt: '{"image": 4, "video": 0}'
+      speculative_config: '{"method":"mtp","num_speculative_tokens":3}'
+      chat_template_kwargs: '{"enable_thinking": false}'
+
+  - name: "qwen38-27b-multi"
+    enabled: false
+    hf_name: "Qwen/Qwen3.8-27B-FP8"
+    repository: "vllm/vllm-openai"
+    tag: "qwen38-x86_64-cu130"
+    parser_profile: "qwen3_coder"
+    gpu_ids: ["1"]
+    vllm:
+      gpu_memory_utilization: 0.5
+      tensor_parallel_size: 1
       max_num_seqs: 4
       max_model_len: 65536
-      language_model_only: true
-      max_num_batched_tokens: 12288
       kv_cache_dtype: "fp8"
-      calculate_kv_scales: true
-
-
-  - name: "qwen36-35b-a3b"
+      max_num_batched_tokens: 16384
+      enable_prefix_caching: true
+      speculative_config: '{"method":"mtp","num_speculative_tokens":3}'
+      limit_mm_per_prompt: '{"image": 4, "video": 0}'
+      #max_num_batched_tokens: 16384
+      chat_template_kwargs: '{"enable_thinking": false}'
+  
+  - name: "qwen36-27b-coding"
     enabled: false
-    hf_name: "Qwen/Qwen3.6-35B-A3B" 
-    parser_profile: "qwen3"
+    hf_name: "Qwen/Qwen3.6-27B-FP8"
+    parser_profile: "qwen3_coder"
     gpu_ids: ["0"]
     vllm:
+      gpu_memory_utilization: 0.6
       tensor_parallel_size: 1
-      max_num_seqs: 16
-      gpu_memory_utilization: 0.85
-      max_model_len: 262144 
-      language_model_only: false
-      
+      max_num_seqs: 4
+      max_model_len: 64000
       kv_cache_dtype: "fp8"
-      calculate_kv_scales: true
-      chat-template-kwargs: '{"preserve_thinking": true}'
+      max_num_batched_tokens: 64000
+      enable_prefix_caching: true
       speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
+      trust_remote_code: true
+      #max_num_batched_tokens: 16384
+      chat_template_kwargs: '{"enable_thinking": false}'
+
+  - name: "qwen36-27b-multi"
+    enabled: false
+    hf_name: "Qwen/Qwen3.6-27B-FP8"
+    parser_profile: "qwen3"
+    gpu_ids: ["1"]
+    vllm:
+      gpu_memory_utilization: 0.5
+      tensor_parallel_size: 1
+      max_num_seqs: 4
+      max_model_len: 16384
+      kv_cache_dtype: "fp8"
+      max_num_batched_tokens: 16384
+      enable_prefix_caching: true
+      speculative_config: '{"method":"qwen3_next_mtp","num_speculative_tokens":2}'
+      trust_remote_code: true
+      limit_mm_per_prompt: '{"image": 4, "video": 0, "audio": 0}'
+      #max_num_batched_tokens: 16384
+      chat_template_kwargs: '{"enable_thinking": false}'
+
+
+
+  # ── Image analysis (takes over the qwen36-27b-multi role) ─────────────────
+  # Meta Muse-Glimmer-30B: dense 29.6B VLM (52-layer decoder + ~1.8B ViT-G/14
+  # perception encoder), 131k native context. RedHatAI FP8-block checkpoint —
+  # 32.78 GB on disk, block-scaled FP8 weights with dynamic activations; vision
+  # tower, embeddings and lm_head stay BF16, so image quality is unaffected by
+  # the quantization. No trust_remote_code needed. Recipe:
+  # https://recipes.vllm.ai/meta-models/Muse-Glimmer-30B?variant=fp8_block&hardware=h200&features=tool_calling%2Creasoning%2Cspec_decoding&advanced=max_batched_8k
+  #
+  # Image is pinned to a branch build, same situation as qwen38-27b-coding:
+  # muse_glimmer support (model + both parsers + DFlash spec decoding) lands via
+  # vllm-project/vllm#51655 and the day-0 `vllm/vllm-openai:muse-glimmer` image,
+  # NOT in the v0.27.1 default tag. `compose up` does not re-pull, so run
+  # `docker pull vllm/vllm-openai:muse-glimmer` on the host to pick up a rebuild.
+  # Drop repository/tag once muse_glimmer lands in a stable release.
+  #
+  # No chat_template_kwargs: this model has no enable_thinking toggle. Reasoning
+  # effort is set per request with a "Reasoning strength: low|medium|high|xhigh"
+  # line in the system prompt (use high/xhigh for agentic work). Also budget
+  # max_tokens generously — a tight limit truncates before the final channel
+  # closes and returns empty content with finish_reason "stop".
+  - name: "muse-glimmer-30b-multi"
+    enabled: true
+    hf_name: "RedHatAI/Muse-Glimmer-30B-FP8-block"
+    repository: "vllm/vllm-openai"
+    tag: "muse-glimmer"
+    parser_profile: "muse_glimmer"
+    gpu_ids: ["1"]
+    vllm:
+      tensor_parallel_size: 1              # 32.78 GB fits one H200 NVL; recipe TP=4 is for 4x GB300
+      gpu_memory_utilization: 0.5          # ~70 GB: 32.8 weights + 5.1 draft head + KV/activations
+      max_model_len: 65536                 # native 131k, halved — channel-scoped reasoning is
+                                           # token-hungry, but GPU 1 also carries the reranker
+                                           # (0.15) and falcon-perception. Raise if KV headroom allows.
+      max_num_seqs: 4
+      max_num_batched_tokens: 8192         # recipe's max_batched_8k profile; relies on the
+                                           # chunked prefill enabled in vllm_defaults
+      kv_cache_dtype: "auto"               # deliberately NOT fp8, unlike the qwen entries: the
+                                           # recipe calls fp8 KV an out-of-recipe extension that
+                                           # changes the memory math and OOM'd the speculator.
+                                           # At 0.5 utilization there is no need to squeeze KV.
+      enable_prefix_caching: true
+      limit_mm_per_prompt: '{"image": 4}'   # image-text-to-text only — no video/audio modality
+                                           # to cap, and vLLM rejects unsupported modality keys
+      # DFlash block-diffusion draft head: predicts a whole block per forward,
+      # verified in parallel by the target. num_speculative_tokens is FIXED at 15
+      # (block_size 16, slot 0 re-presents the last accepted token) — not a tunable.
+      # The head reads the target's residual stream and is useless with any other
+      # model. NOTE: only hf_name is pre-downloaded by the playbook, so this 5.11 GB
+      # repo is pulled on first container start before the server comes up.
+      speculative_config: '{"method": "dflash", "model": "meta-models/Muse-Glimmer-30B-assistant", "num_speculative_tokens": 15}'
+    extra_args:
+      # Not in the compose template whitelist. Loads the checkpoint's sampling
+      # defaults (temperature 1.0 / top_p 0.95 / top_k 64) — the recipe explicitly
+      # discourages greedy decoding for this model.
+      - "--generation-config"
+      - "auto"
+
+
+  # Cosmos3-Nano (reasoner mode) needs NVIDIA's vllm-cosmos3 plugin, which the
+  # stock vllm/vllm-openai image lacks — served from a derived image instead
+  # (docker/Dockerfile.vllm-cosmos3, see custom_images above). Reasoner flags
+  # follow the Cosmos3 cookbook. BF16 only — FP8/FP4 are unsupported.
+  - name: "cosmos-3-nano"
+    enabled: false
+    hf_name: "nvidia/Cosmos3-Nano"
+    repository: "soofi/vllm-openai-cosmos3"
+    tag: "v0.27.1"
+    gpu_ids: ["0"]  # GPU 1 is fully booked (qwen36-27b-multi 0.5 + nemotron omni 0.5)
+    vllm:
+      gpu_memory_utilization: 0.5
+      tensor_parallel_size: 1
+      max_model_len: 16000
+      max_num_seqs: 1
+      async_scheduling: true
+      enable_prefix_caching: true
+      limit_mm_per_prompt: '{"image": 4, "video": 0, "audio": 0}'
+    extra_args:
+      - "--hf-overrides"
+      - '{"architectures": ["Cosmos3ReasonerForConditionalGeneration"]}'
+      - "--mm-encoder-tp-mode"
+      - "data"
+
+
+  - name: "gemma4-31b"
+    enabled: false
+    hf_name: "RedHatAI/gemma-4-31B-it-FP8-block" 
+    gpu_ids: ["1"]
+    vllm:
+      gpu_memory_utilization: 0.3
+      tensor_parallel_size: 1
+      max_model_len: 16384      
+      enable_auto_tool_choice: true
+      trust_remote_code: true
+      async_scheduling: true
+      video_pruning_rate: 0.5
+      max_num_seqs: 1
+      tool_call_parser: "gemma4"
+      reasoning_parser: "gemma4"
+      kv_cache_dtype: "fp8"
+      mm_processor_kwargs: '{"max_soft_tokens": 560}'
+      limit_mm_per_prompt: '{"image": 4, "video": 1, "audio": 0}'
 
 
   # - name: "gemma4-31b-it"
@@ -159,107 +364,75 @@ models:
   #     speculative_model: "google/gemma-4-31B-it-assistant" # Das hier ist der Turbo
   #     num_speculative_tokens: 5
 
-  - name: "qwen3-coder-next-fp8"
+  
+
+  - name: "soofi-s-rhine-preview"
     enabled: false
-    hf_name: "Qwen/Qwen3-Coder-Next-FP8"
-    parser_profile: "qwen3"
+    is_local: true
+    #hf_name: "Soofi-Project/Soofi-S-Rhine-Preview"
+    hf_name: "/models/soofi-s-rhine-preview" 
     gpu_ids: ["0"]
+    parser_profile: "soofi"
     vllm:
       tensor_parallel_size: 1
-      max_num_seqs: 4
-      gpu_memory_utilization: 0.95
-      max_model_len: 262144
-      language_model_only: false
-      max_num_batched_tokens: 65536
-      kv_cache_dtype: "fp8"
-      calculate_kv_scales: true
-
-
-  - name: "Qwen3.5-27B-FP8"
-    enabled: false
-    hf_name: "Qwen/Qwen3.5-27B-FP8"
-    gpu_ids: ["1"]
-    parser_profile: "qwen3"
-    vllm:
-      gpu_memory_utilization: 0.35
-      max_num_seqs: 4
-      language_model_only: true
-      max_num_batched_tokens: 12288
-      kv_cache_dtype: "fp8"
-      calculate_kv_scales: true
-
-
-  - name: "NVIDIA-Nemotron-3-Super-120B-A12B-FP8"
-    enabled: false
-    hf_name: "unsloth/NVIDIA-Nemotron-3-Super-120B-A12B-FP8"
-    gpu_ids: ["0"]
-    parser_profile: "nemotron_v3"
-    vllm:
-      gpu_memory_utilization: 0.9
-      swap_space: 0
-      max_num_seqs: 512
-      trust_remote_code: true
-      kv_cache_dtype: "fp8"
-      pipeline_parallel_size: 1
-      data_parallel_size: 1
-      attention_backend: "TRITON_ATTN"
-      async_scheduling: true
-      mamba_ssm_cache_dtype: "float16"
-      max_cudagraph_capture_size: 128
-      enable_expert_parallel: true
-
-  - name: "NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
-    enabled: false
-    hf_name: "unsloth/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
-    gpu_ids: ["1"]
-    parser_profile: "nemotron_v3"
-    vllm:
-      gpu_memory_utilization: 0.7
-      swap_space: 0
-      max_num_seqs: 512
-      trust_remote_code: true
-      kv_cache_dtype: "fp8"
-      pipeline_parallel_size: 1
-      data_parallel_size: 1
-      attention_backend: "TRITON_ATTN"
-      async_scheduling: true
-      mamba_ssm_cache_dtype: "float16"
-      max_cudagraph_capture_size: 128
-        
-
-  # - name: "MiniMax-M2.5"
-  #   enabled: false
-  #   hf_name: "MiniMaxAI/MiniMax-M2.5"
-  #   gpu_ids: ["0", "1"]
-  #   parser_profile: "minimax_m2"
-  #   vllm:
-  #     tensor_parallel_size: 2
-  #     max_model_len: 8000
-  #     trust_remote_code: true
-  #   extra_args:
-  #     - "--kv-cache-memory-bytes"
-  #     - "5000000000"
-
-
-  - name: "Nemotron-Cascade-2-30B-A3B-fp8"
-    enabled: false
-    hf_name: "chankhavu/Nemotron-Cascade-2-30B-A3B-FP8"
-    gpu_ids: ["1"]
-    parser_profile: "nemotron_v3"
-    vllm:
-      gpu_memory_utilization: 0.35
-      max_model_len: 4000
-      enable_chunked_prefill: false
-      swap_space: 16
+      gpu_memory_utilization: 0.7 
+      max_model_len: 64000                  # 256k default; reduce on OOM
       max_num_seqs: 8
-      mamba_ssm_cache_dtype: "float32"
+      dtype: "auto"  
+      enable_prefix_caching: false 
+      enable_chunked_prefill: false
       trust_remote_code: true
-    extra_args:
-      - "--seed"
-      - "3407"
+      chat_template_kwargs: '{"enable_thinking": false}'
+      reasoning_parser_plugin: "/opt/parsers/nano_v3_reasoning_parser.py"
+    extraVolumes:
+      - "/opt/soofi/models/local/Soofi-S-Rhine-Preview:/models/soofi-s-rhine-preview:ro"
+      - "/opt/soofi/models/local/parsers/nano_v3_reasoning_parser.py:/opt/parsers/nano_v3_reasoning_parser.py:ro"
 
 
-  
+  - name: "soofi-s-instruct-preview"
+    enabled: false
+    is_local: true
+    #hf_name: "Soofi-Project/Soofi-S-Instruct-Preview"
+    hf_name: "/models/soofi-s-instruct-preview" 
+    gpu_ids: ["0"]
+    parser_profile: "soofi"
+    vllm:
+      tensor_parallel_size: 1
+      gpu_memory_utilization: 0.7 
+      max_model_len: 64000                  # 256k default; reduce on OOM
+      max_num_seqs: 8
+      dtype: "auto"  
+      enable_prefix_caching: false 
+      enable_chunked_prefill: false
+      trust_remote_code: true
+      chat_template_kwargs: '{"enable_thinking": true}'
+      reasoning_parser_plugin: "/opt/parsers/nano_v3_reasoning_parser.py"
+    extraVolumes:
+      - "/opt/soofi/models/local/Soofi-S-Instruct-Preview:/models/soofi-s-instruct-preview:ro"
+      - "/opt/soofi/models/local/parsers/nano_v3_reasoning_parser.py:/opt/parsers/nano_v3_reasoning_parser.py:ro"
+
+
+  - name: "soofi-s-isar-preview"
+    enabled: false
+    is_local: true
+    #hf_name: "Soofi-Project/Soofi-S-Isar-Preview"
+    hf_name: "/models/soofi-s-isar-preview" 
+    gpu_ids: ["0"]
+    parser_profile: "soofi"
+    vllm:
+      tensor_parallel_size: 1
+      gpu_memory_utilization: 0.7 
+      max_model_len: 64000                  # 256k default; reduce on OOM
+      max_num_seqs: 8
+      dtype: "auto"  
+      enable_prefix_caching: false 
+      enable_chunked_prefill: false
+      trust_remote_code: true
+      chat_template_kwargs: '{"enable_thinking": false}'
+      reasoning_parser_plugin: "/opt/parsers/nano_v3_reasoning_parser.py"
+    extraVolumes:
+      - "/opt/soofi/models/local/Soofi-S-Isar-Preview:/models/soofi-s-isar-preview:ro"
+      - "/opt/soofi/models/local/parsers/nano_v3_reasoning_parser.py:/opt/parsers/nano_v3_reasoning_parser.py:ro"
 
   # ── Reranker (Qwen3, cross-encoder via vLLM score task, GPU 1, ~8 GB) ──────
   # enable_prefix_caching / enable_chunked_prefill are explicitly disabled —
@@ -268,7 +441,7 @@ models:
   - name: "qwen3-reranker-4b"
     enabled: true
     hf_name: "Qwen/Qwen3-Reranker-4B"
-    gpu_ids: ["0"]
+    gpu_ids: ["1"]
     host_port: 8003
     vllm:
       tensor_parallel_size: 1
@@ -287,6 +460,7 @@ models:
     extraVolumes:
       - "{{ deploy_dir }}/models/chat_templates:/app/chat_templates:ro"
 
+
 # ── STT Service (speaches / faster-whisper) ──────────────────────────────────
 stt_service:
   container_name: "faster-whisper"
@@ -296,7 +470,7 @@ stt_service:
   litellm_name: "whisper-1"
   litellm_model: "openai/whisper-1"
   healthcheck_path: "/health"
-  gpu_devices: ["1"]
+  gpu_devices: ["0"]
   volumes:
     - "{{ deploy_dir }}/models/hf_cache:/home/ubuntu/.cache/huggingface"
   environment:
@@ -305,61 +479,56 @@ stt_service:
     - "WHISPER__COMPUTE_TYPE=float16"
     - "STT_MODEL_TTL=-1"
 
-# ── TTS Service (openedai-speech / Piper + XTTS) ─────────────────────────────
-# Image ":0.18.2" ships both Piper (CPU, tts-1) and Coqui XTTS v2 (GPU, tts-1-hd).
-# XTTS weights (~2 GB) are downloaded by Coqui on first request and cached under
-# TTS_HOME=/app/voices/tts, which persists in the mounted piper volume.
-tts_service:
-  container_name: "openedai-speech"
-  image: "ghcr.io/matatonic/openedai-speech:0.18.2"
-  internal_port: 8011
-  container_port: 8000
-  litellm_name: "tts-1"
-  litellm_model: "openai/tts-1"
-  litellm_name_hd: "tts-1-hd"
-  litellm_model_hd: "openai/tts-1-hd"
-  healthcheck_path: "/health"
+# ── Falcon-Perception (FastAPI vision server, own /v1/predictions API) ───────
+# Not OpenAI-compatible — NOT registered in LiteLLM and no litellm depends_on;
+# reached directly via the host port, like the reranker. Image is built on the
+# GPU host (see custom_images). First start compiles the model (torch.compile +
+# CUDA graphs) which can take ~15 min — hence the healthcheck overrides; the
+# /cache volume persists compile artifacts so restarts are fast. Comment out
+# the whole block to disable. GPU 0: reranker uses 0.15, cosmos 0.5 when
+# enabled — check nvidia-smi headroom before enabling alongside more models.
+falcon_perception_service:
+  container_name: "falcon-perception"
+  image: "soofi/falcon-perception:v1.0.0-lowmem1"
+  hf_name: "tiiuae/Falcon-Perception"
+  internal_port: 8004
+  container_port: 7860
+  healthcheck_path: "/v1/health"
+  healthcheck_start_period: "900s"
+  healthcheck_retries: 40
+  shm_size: "16gb"
   gpu_devices: ["1"]
   volumes:
-    # Piper models go to a dedicated mount to avoid overwriting /app/voices
-    # — that directory ships with speaker WAVs (alloy/echo/fable/nova/onyx/
-    # shimmer) used by XTTS for voice cloning.
-    - "{{ deploy_dir }}/models/piper:/app/piper:ro"
-    - "{{ deploy_dir }}/models/piper/voice_to_speaker.yaml:/app/config/voice_to_speaker.yaml"
-    # Persist XTTS weights across container recreates
-    - "{{ deploy_dir }}/models/xtts_cache:/root/.local/share/tts"
+    - "{{ deploy_dir }}/models/hf_cache:/models/huggingface"          # image sets HF_HOME here
+    - "{{ deploy_dir }}/models/falcon_perception_cache:/cache"        # torchinductor/triton compile caches
   environment:
-    # Accept Coqui XTTS v2 non-commercial licence non-interactively
-    - "COQUI_TOS_AGREED=1"
-  voices:
-    # Piper ONNX models — HuggingFace base: rhasspy/piper-voices v1.0.0
-    # Format: voice name → filename + HF path (de/de_DE/thorsten/high/...)
-    - filename: "de_DE-thorsten-high"
-      path: "de/de_DE/thorsten/high"
-    - filename: "de_DE-thorsten_emotional-medium"
-      path: "de/de_DE/thorsten_emotional/medium"
-    - filename: "de_DE-kerstin-low"
-      path: "de/de_DE/kerstin/low"
-    - filename: "en_US-lessac-high"
-      path: "en/en_US/lessac/high"
-  # Coqui XTTS v2 — speaker_wav is a path to a reference WAV inside the
-  # container. /app/voices/*.wav ships with the matatonic image (alloy.wav,
-  # echo.wav, fable.wav, nova.wav, onyx.wav, shimmer.wav — all English
-  # samples). XTTS clones the voice timbre and renders German with a slight
-  # accent. Swap to a German reference sample later for best quality.
-  xtts_voices:
-    - name: "alloy"
-      speaker_wav: "voices/nova.wav"
-      language: "de"
-    - name: "nova"
-      speaker_wav: "voices/shimmer.wav"
-      language: "de"
-    - name: "shimmer"
-      speaker_wav: "voices/shimmer.wav"
-      language: "en"
-    - name: "onyx"
-      speaker_wav: "voices/onyx.wav"
-      language: "en"
+    - "HF_MODEL_ID=tiiuae/Falcon-Perception"
+    - "DTYPE=bfloat16"
+    - "NUM_GPUS=1"
+    - "N_PAGES=128"
+    - "MAX_BATCH_SIZE=8"
+    - "MAX_SEQ_LENGTH=4096"
+    - "PREFILL_LENGTH_LIMIT=4096"
+    # Keeps the pinned CPU HR segmentation feature pool around ~4 GiB at 1024px.
+    - "MAX_HR_CACHE_ENTRIES=8"
+    - "HF_TOKEN={{ hf_token }}"
+    - "TEMPERATURE=0.0"
+
+# ── Docling GPU Service (PDF→Markdown, Vision Transformer on GPU) ──────────
+# Runs docling-layout-heron + tableformer-v2 on GPU 1 (~1-2 GB VRAM).
+# Used for benchmarking PDF conversion latency (CPU vs GPU).
+# Not registered in LiteLLM — accessed directly via port 8020.
+docling_service:
+  enabled: false
+  container_name: "docling-gpu"
+  build_context: "{{ deploy_dir }}/docling-service"
+  internal_port: 8020
+  container_port: 8000
+  healthcheck_path: "/health"
+  gpu_devices: ["0"]
+  environment:
+    - "DOCLING_DEVICE=cuda"
+    - "PDF_TABLE_STRUCTURE=true"
 
 # Image versions
 litellm_image: "ghcr.io/berriai/litellm:v1.83.14-stable.patch.2"
