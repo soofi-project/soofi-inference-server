@@ -1,0 +1,47 @@
+# Local ComfyUI runtime for Krea 2 Turbo style reference.
+# Keep these pins and the image tag in vars.yaml in sync.
+FROM python:3.12-slim-bookworm
+
+ARG COMFYUI_VERSION=v0.30.0
+ARG TORCH_VERSION=2.13.0
+ARG TORCHVISION_VERSION=0.28.0
+# TorchAudio 2.11 uses the stable ABI and supports PyTorch 2.11 and newer.
+ARG TORCHAUDIO_VERSION=2.11.0
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu130
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl git libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --branch "${COMFYUI_VERSION}" --depth 1 \
+        https://github.com/Comfy-Org/ComfyUI.git /opt/ComfyUI \
+    && cd /opt/ComfyUI \
+    && python -m pip install \
+        "torch==${TORCH_VERSION}" \
+        "torchvision==${TORCHVISION_VERSION}" \
+        "torchaudio==${TORCHAUDIO_VERSION}" \
+        --index-url "${TORCH_INDEX_URL}" \
+    && python -m pip install -r requirements.txt \
+    && python -c "import torch; assert torch.__version__.startswith('${TORCH_VERSION}'); assert torch.version.cuda == '13.0', torch.version.cuda" \
+    && python -c "import importlib.metadata as m; assert m.version('comfyui-workflow-templates') == '0.11.27'" \
+    && python -c "from importlib.resources import files; p = files('comfyui_workflow_templates_json').joinpath('templates/image_krea2_turbo_int8_image_style_reference.json'); assert p.is_file(), f'missing official Krea 2 style-reference template: {p}'" \
+    && python -c "import json; from importlib.resources import files; p = files('comfyui_workflow_templates_json').joinpath('templates/index.json'); entries = [t for category in json.loads(p.read_text()) for t in category.get('templates', []) if t.get('name') == 'image_krea2_turbo_int8_image_style_reference']; assert entries and entries[0].get('title') == 'Krea-2 Int8: Image Style Reference', 'official Krea 2 style-reference template is missing from the Template Library index'"
+
+# Triton JIT-compiles its CUDA driver stub as a Python extension at runtime.
+# Keep this after the heavyweight Python layer so toolchain updates preserve
+# that layer's cache.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /comfyui/models /comfyui/input /comfyui/output /comfyui/user /tmp/comfyui \
+    && chmod 1777 /tmp/comfyui
+
+WORKDIR /opt/ComfyUI
+EXPOSE 8188
+
+ENTRYPOINT ["python", "main.py"]

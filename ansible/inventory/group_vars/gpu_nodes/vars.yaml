@@ -11,12 +11,10 @@ cuda_version: "12-4"                  # apt format (dash-separated)
 deploy_dir: /opt/soofi
 
 # vLLM defaults — override per model if needed.
-# Bumped v0.21.0 (15 May 2026) → v0.27.1 (11 Aug 2026). Newest stable tag; brings
+# Bumped v0.21.0 (15 May 2026) → v0.27.1 (11 Aug 2026). Shared default; brings
 # transformers 5.13.0 (vLLM #47867), PyTorch 2.13, and a lot of Qwen3.5/3.6 kernel
 # work (RMSNorm+all-reduce fusion, MoE reduce-scatter, H20 opt) that qwen36-27b-multi
-# benefits from. Deliberately NOT the `qwen38` branch build — that one is pinned on
-# the single model that needs it (see qwen38-27b-coding), so the rest of the stack
-# stays on a versioned tag.
+# benefits from. Qwen3.8 models override this default with a newer stable tag.
 vllm_defaults:
   repository: "vllm/vllm-openai"
   tag: "v0.27.1"
@@ -41,6 +39,11 @@ custom_images:
   - repository: "soofi/falcon-perception"
     tag: "v1.0.0-lowmem1"
     dockerfile: "Dockerfile.falcon-perception"
+  # ComfyUI runtime for the local Krea 2 Turbo style-reference workflow.
+  # Keep this tag, the Dockerfile pins, and comfyui_service.image in sync.
+  - repository: "soofi/comfyui-krea2"
+    tag: "v0.30.0-torch2.13.0-cu130"
+    dockerfile: "Dockerfile.comfyui-krea2"
 
 # Shared parser/tooling presets for model families.
 parser_profiles:
@@ -168,20 +171,15 @@ models:
       chat_template_kwargs: '{"enable_thinking": false}'
   
 
-  # Qwen3.8 is NOT in any tagged vLLM release, not even the current default:
-  # v0.27.1 (11 Aug 2026) predates it and only adds Qwen3.5 text-only dense/MoE.
-  # Support ships in the day-0 `qwen38` branch builds (pushed 12 Aug 2026), so this
-  # is the one model that has to run off a branch build rather than a version tag.
-  # It also satisfies the transformers >= 5.8.0 that this checkpoint's config.json
-  # requires. cu130 needs driver >= 580 (host runs 590).
-  # Note: `compose up` does not re-pull, so this tag is effectively pinned to the
-  # first pull; `docker pull vllm/vllm-openai:qwen38-x86_64-cu130` on the host to
-  # pick up a rebuild. Drop repository/tag once Qwen3.8 lands in a stable release.
+  # Qwen3.8 support is available in stable vLLM releases from v0.28.0 onward.
+  # Keep these models on v0.30.0 while the shared default remains v0.27.1.
+  # The stable CUDA 13.0 image includes transformers >= 5.8.0 as required by
+  # this checkpoint; the host's 590 driver supports CUDA 13.0.
   - name: "qwen38-27b-coding"
     enabled: false
     hf_name: "Qwen/Qwen3.8-27B-FP8"
     repository: "vllm/vllm-openai"
-    tag: "qwen38-x86_64-cu130"
+    tag: "v0.30.0"
     parser_profile: "qwen3_coder"
     gpu_ids: ["0"]
     vllm:
@@ -189,18 +187,18 @@ models:
       tensor_parallel_size: 1
       max_num_seqs: 8
       max_model_len: 120000
-      kv_cache_dtype: "fp8"
+      kv_cache_dtype: "auto"
       max_num_batched_tokens: 16384
       enable_prefix_caching: true
       limit_mm_per_prompt: '{"image": 4, "video": 0}'
-      speculative_config: '{"method":"mtp","num_speculative_tokens":3}'
+      #speculative_config: '{"method":"mtp","num_speculative_tokens":3}'
       chat_template_kwargs: '{"enable_thinking": false}'
 
   - name: "qwen38-27b-multi"
     enabled: false
     hf_name: "Qwen/Qwen3.8-27B-FP8"
     repository: "vllm/vllm-openai"
-    tag: "qwen38-x86_64-cu130"
+    tag: "v0.30.0"
     parser_profile: "qwen3_coder"
     gpu_ids: ["1"]
     vllm:
@@ -208,10 +206,10 @@ models:
       tensor_parallel_size: 1
       max_num_seqs: 4
       max_model_len: 65536
-      kv_cache_dtype: "fp8"
+      kv_cache_dtype: "auto"
       max_num_batched_tokens: 16384
       enable_prefix_caching: true
-      speculative_config: '{"method":"mtp","num_speculative_tokens":3}'
+      #speculative_config: '{"method":"mtp","num_speculative_tokens":3}'
       limit_mm_per_prompt: '{"image": 4, "video": 0}'
       #max_num_batched_tokens: 16384
       chat_template_kwargs: '{"enable_thinking": false}'
@@ -263,7 +261,7 @@ models:
   # the quantization. No trust_remote_code needed. Recipe:
   # https://recipes.vllm.ai/meta-models/Muse-Glimmer-30B?variant=fp8_block&hardware=h200&features=tool_calling%2Creasoning%2Cspec_decoding&advanced=max_batched_8k
   #
-  # Image is pinned to a branch build, same situation as qwen38-27b-coding:
+  # Image is pinned to a branch build:
   # muse_glimmer support (model + both parsers + DFlash spec decoding) lands via
   # vllm-project/vllm#51655 and the day-0 `vllm/vllm-openai:muse-glimmer` image,
   # NOT in the v0.27.1 default tag. `compose up` does not re-pull, so run
@@ -459,6 +457,99 @@ models:
       - "/app/chat_templates/qwen3_reranker.jinja"
     extraVolumes:
       - "{{ deploy_dir }}/models/chat_templates:/app/chat_templates:ro"
+
+
+# ── Image generation (Krea 2 Raw via vLLM-Omni) ────────────────────────────
+# Runs outside the standard vLLM/LiteLLM model loop so its pinned Omni runtime
+# cannot change or block the text-model serving stack. Access it directly on
+# port 8005. Krea 2 uses the Krea 2 Community License; access must be accepted
+# for the Hugging Face token configured in vault.yaml.
+image_generation_service:
+  enabled: false
+  container_name: "vllm-krea-2-raw"
+  image: "vllm/vllm-omni:v0.26.0"
+  hf_name: "krea/Krea-2-Raw"
+  internal_port: 8005
+  container_port: 8000
+  healthcheck_path: "/health"
+  healthcheck_start_period: "300s"
+  healthcheck_retries: 40
+  shm_size: "16gb"
+  gpu_devices: ["1"]
+  volumes:
+    - "{{ deploy_dir }}/models/hf_cache:/root/.cache/huggingface"
+  environment:
+    - "HUGGING_FACE_HUB_TOKEN={{ hf_token }}"
+    - "HF_TOKEN={{ hf_token }}"
+    - "HF_HUB_DISABLE_XET=1"
+  command:
+    - "vllm"
+    - "serve"
+    - "krea/Krea-2-Raw"
+    - "--omni"
+    - "--enforce-eager"
+    - "--port"
+    - "8000"
+
+
+# ── Image generation (Krea 2 Turbo style reference via ComfyUI) ─────────────
+# Browser and native ComfyUI API, intentionally independent from LiteLLM.
+# This endpoint is unauthenticated. Never forward port 8188 to the public
+# internet; it is intended only for trusted hosts that can route to this server.
+comfyui_service:
+  enabled: false
+  user: "mrk"
+  container_name: "comfyui-krea2"
+  image: "soofi/comfyui-krea2:v0.30.0-torch2.13.0-cu130"
+  internal_port: 8188
+  container_port: 8188
+  healthcheck_path: "/system_stats"
+  healthcheck_start_period: "120s"
+  healthcheck_retries: 20
+  shm_size: "16gb"
+  gpu_devices: ["1"]
+  models_dir: "{{ deploy_dir }}/models/comfyui"
+  model_base_url: "https://huggingface.co/Comfy-Org/Krea-2/resolve/main"
+  data_dir: "/home/mrk/image-gen-data"
+  models:
+    - path: "diffusion_models/krea2_turbo_int8_convrot.safetensors"
+      size: 13492686496
+      sha256: "8e4eeda70dd5037ab1ba2bef6b417f9f901e26093117cf397f741fc1fdaaf3f1"
+    - path: "text_encoders/qwen3vl_4b_fp8_scaled.safetensors"
+      size: 5242467968
+      sha256: "54bd5144df0bbc25dd6ccadfcb826b521445a1b06ae5a42570bdd2974ca87094"
+    - path: "vae/qwen_image_vae.safetensors"
+      size: 253806246
+      sha256: "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f"
+    - path: "loras/krea2_style_reference.safetensors"
+      size: 457111760
+      sha256: "f50df5a9e62e4be8aa926a63dd5bb1a64770c4004f763c1208007ae13daa82b8"
+  volumes:
+    - "{{ deploy_dir }}/models/comfyui:/comfyui/models:ro"
+    - "/home/mrk/image-gen-data/input:/comfyui/input"
+    - "/home/mrk/image-gen-data/output:/comfyui/output"
+    - "/home/mrk/image-gen-data/user:/comfyui/user"
+  environment:
+    - "TRITON_CACHE_DIR=/tmp/triton"
+  command:
+    - "--listen"
+    - "0.0.0.0"
+    - "--port"
+    - "8188"
+    - "--multi-user"
+    - "--disable-api-nodes"
+    - "--models-directory"
+    - "/comfyui/models"
+    - "--input-directory"
+    - "/comfyui/input"
+    - "--output-directory"
+    - "/comfyui/output"
+    - "--temp-directory"
+    - "/tmp/comfyui"
+    - "--user-directory"
+    - "/comfyui/user"
+    - "--database-url"
+    - "sqlite:////comfyui/user/comfyui.db"
 
 
 # ── STT Service (speaches / faster-whisper) ──────────────────────────────────

@@ -28,6 +28,32 @@
         - "{{ deploy_dir }}/docker"
         - "{{ deploy_dir }}/models/hf_cache"
 
+    - name: Resolve ComfyUI service account
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ comfyui_service.user }}"
+        fail_key: true
+      when:
+        - comfyui_service is defined
+        - comfyui_service.enabled | default(false)
+
+    - name: Create persistent ComfyUI directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ comfyui_service.user }}"
+        group: "{{ comfyui_service.user }}"
+        mode: "0755"
+      loop:
+        - "{{ comfyui_service.models_dir }}"
+        - "{{ comfyui_service.data_dir }}"
+        - "{{ comfyui_service.data_dir }}/input"
+        - "{{ comfyui_service.data_dir }}/output"
+        - "{{ comfyui_service.data_dir }}/user"
+      when:
+        - comfyui_service is defined
+        - comfyui_service.enabled | default(false)
+
     # ── 2. Config files ───────────────────────────────────────────────────────
     - name: Deploy docker-compose.yml from template
       ansible.builtin.template:
@@ -81,7 +107,12 @@
                           + ([stt_service.image | default(''),
                               tts_service.image | default(''),
                               falcon_perception_service.image | default('')]
-                             | select() | map('regex_replace', ':[^:]*$', '') | list))
+                             | select() | map('regex_replace', ':[^:]*$', '') | list)
+                          + (([comfyui_service.image]
+                              if comfyui_service is defined and
+                                 comfyui_service.enabled | default(false)
+                              else [])
+                             | map('regex_replace', ':[^:]*$', '') | list))
              | list }}
 
     - name: Copy Dockerfiles for custom images
@@ -165,6 +196,159 @@
         label: "{{ item.item.hf_name }}"
       async: 7200
       poll: 30
+      changed_when: true
+
+    # Krea uses a separately pinned vLLM-Omni image and is intentionally not in
+    # active_models, so pre-download it independently into the same HF cache.
+    # Run the idempotent downloader on every enabled deployment: Hugging Face
+    # creates snapshot metadata before large blobs finish, so directory presence
+    # is not proof of a complete checkpoint. Disable Xet to avoid its gated-repo
+    # hash parsing failure; the standard HTTP downloader resumes cached blobs.
+    - name: Download Krea 2 weights from HuggingFace
+      ansible.builtin.command:
+        cmd: >-
+          docker run --rm
+          --entrypoint hf
+          -v {{ deploy_dir }}/models/hf_cache:/root/.cache/huggingface
+          -e HF_HUB_ENABLE_HF_TRANSFER=1
+          -e HF_HUB_DISABLE_XET=1
+          {% if hf_token | default('') | regex_search('^hf_') %}
+          -e HF_TOKEN={{ hf_token }}
+          -e HUGGING_FACE_HUB_TOKEN={{ hf_token }}
+          {% endif %}
+          {{ image_generation_service.image }}
+          download {{ image_generation_service.hf_name }}
+      when:
+        - image_generation_service is defined
+        - image_generation_service.enabled | default(false)
+      async: 7200
+      poll: 30
+      changed_when: true
+
+    # ComfyUI consumes four individual files rather than a Hugging Face snapshot.
+    # Keep partial files so interrupted transfers resume; promote a file only
+    # after its exact size and SHA-256 match the inventory manifest.
+    - name: Create ComfyUI model directories
+      ansible.builtin.file:
+        path: "{{ comfyui_service.models_dir }}/{{ item.path | dirname }}"
+        state: directory
+        owner: "{{ comfyui_service.user }}"
+        group: "{{ comfyui_service.user }}"
+        mode: "0755"
+      loop: "{{ comfyui_service.models }}"
+      loop_control:
+        label: "{{ item.path | dirname }}"
+      when:
+        - comfyui_service is defined
+        - comfyui_service.enabled | default(false)
+
+    - name: Inspect existing ComfyUI model files
+      ansible.builtin.stat:
+        path: "{{ comfyui_service.models_dir }}/{{ item.path }}"
+        checksum_algorithm: sha256
+      register: comfyui_existing_models
+      loop: "{{ comfyui_service.models }}"
+      loop_control:
+        label: "{{ item.path }}"
+      when:
+        - comfyui_service is defined
+        - comfyui_service.enabled | default(false)
+
+    - name: Reject corrupt existing ComfyUI model files
+      ansible.builtin.assert:
+        that:
+          - (item.stat.size | default(-1)) == item.item.size
+          - (item.stat.checksum | default('missing')) == item.item.sha256
+        fail_msg: >-
+          Corrupt ComfyUI model {{ comfyui_service.models_dir }}/{{ item.item.path }}:
+          expected size {{ item.item.size }} and expected SHA-256 {{ item.item.sha256 }};
+          actual size {{ item.stat.size | default('missing') }} and actual SHA-256
+          {{ item.stat.checksum | default('missing') }}. Remove or replace this file,
+          then rerun the deployment.
+        quiet: true
+      loop: "{{ comfyui_existing_models.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.path }}"
+      when:
+        - comfyui_service is defined
+        - comfyui_service.enabled | default(false)
+        - item.stat.exists | default(false)
+
+    - name: Download missing ComfyUI model files
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --fail
+          - --location
+          - --retry
+          - "5"
+          - --retry-all-errors
+          - --continue-at
+          - "-"
+          - --output
+          - "{{ comfyui_service.models_dir }}/{{ item.item.path }}.partial"
+          - "{{ comfyui_service.model_base_url }}/{{ item.item.path }}"
+      loop: "{{ comfyui_existing_models.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.path }}"
+      when:
+        - comfyui_service is defined
+        - comfyui_service.enabled | default(false)
+        - not ansible_check_mode
+        - not (item.stat.exists | default(false))
+      async: 14400
+      poll: 30
+      changed_when: true
+
+    - name: Inspect downloaded ComfyUI model files
+      ansible.builtin.stat:
+        path: >-
+          {{ comfyui_service.models_dir }}/{{ item.item.path }}{{ '' if item.stat.exists | default(false) else '.partial' }}
+        checksum_algorithm: sha256
+      register: comfyui_model_candidates
+      loop: "{{ comfyui_existing_models.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.path }}"
+      when:
+        - comfyui_service is defined
+        - comfyui_service.enabled | default(false)
+        - not ansible_check_mode
+
+    - name: Verify downloaded ComfyUI model files
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists | default(false)
+          - (item.stat.size | default(-1)) == item.item.item.size
+          - (item.stat.checksum | default('missing')) == item.item.item.sha256
+        fail_msg: >-
+          Invalid ComfyUI model {{ comfyui_service.models_dir }}/{{ item.item.item.path }}:
+          expected size {{ item.item.item.size }} and expected SHA-256 {{ item.item.item.sha256 }};
+          actual size {{ item.stat.size | default('missing') }} and actual SHA-256
+          {{ item.stat.checksum | default('missing') }}. The .partial file was retained
+          for diagnosis or a resumed retry.
+        quiet: true
+      loop: "{{ comfyui_model_candidates.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.item.path }}"
+      when:
+        - comfyui_service is defined
+        - comfyui_service.enabled | default(false)
+        - not ansible_check_mode
+
+    - name: Promote verified ComfyUI model files
+      ansible.builtin.command:
+        argv:
+          - mv
+          - "{{ comfyui_service.models_dir }}/{{ item.item.item.path }}.partial"
+          - "{{ comfyui_service.models_dir }}/{{ item.item.item.path }}"
+      loop: "{{ comfyui_model_candidates.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.item.path }}"
+      when:
+        - comfyui_service is defined
+        - comfyui_service.enabled | default(false)
+        - not ansible_check_mode
+        - not (item.item.stat.exists | default(false))
       changed_when: true
 
     - name: Clean up any residual incomplete download files
@@ -342,12 +526,19 @@
         'Started' in (compose_up.stderr | default('')) or
         'Created' in (compose_up.stderr | default('')) or
         'Recreated' in (compose_up.stderr | default(''))
-      when: active_models | length > 0
+      when: >-
+        active_models | length > 0 or
+        image_generation_service is defined or
+        comfyui_service is defined
 
     - name: Show compose output
       ansible.builtin.debug:
         var: compose_up.stderr_lines
-      when: active_models | length > 0 and (compose_up.changed | default(false))
+      when: >-
+        (active_models | length > 0 or
+         image_generation_service is defined or
+         comfyui_service is defined) and
+        (compose_up.changed | default(false))
 
     - name: Restart LiteLLM (config file changed)
       ansible.builtin.command:
@@ -357,8 +548,11 @@
 
     - name: Skip stack start (no models configured)
       ansible.builtin.debug:
-        msg: "No enabled models in vars.yaml — skipping stack start."
-      when: active_models | length == 0
+        msg: "No models or managed image-generation services in vars.yaml — skipping stack start."
+      when: >-
+        active_models | length == 0 and not
+        (image_generation_service is defined) and not
+        (comfyui_service is defined)
 
     # ── 8. Health check ──────────────────────────────────────────────────────
     - name: Wait for LiteLLM to be ready
@@ -377,6 +571,30 @@
         return_content: true
       register: litellm_models
       when: active_models | length > 0
+
+    - name: Wait for Krea 2 image API to be ready
+      ansible.builtin.uri:
+        url: "http://localhost:{{ image_generation_service.internal_port }}{{ image_generation_service.healthcheck_path | default('/health') }}"
+        status_code: 200
+      register: krea_health
+      until: krea_health.status == 200
+      retries: 60
+      delay: 30
+      when:
+        - image_generation_service is defined
+        - image_generation_service.enabled | default(false)
+
+    - name: Wait for ComfyUI to be ready
+      ansible.builtin.uri:
+        url: "http://localhost:{{ comfyui_service.internal_port }}{{ comfyui_service.healthcheck_path }}"
+        status_code: 200
+      register: comfyui_health
+      until: comfyui_health.status == 200
+      retries: 20
+      delay: 15
+      when:
+        - comfyui_service is defined
+        - comfyui_service.enabled | default(false)
 
     # ── 9. Warm up STT (load Whisper into GPU memory) ────────────────────────
     - name: Warm up STT

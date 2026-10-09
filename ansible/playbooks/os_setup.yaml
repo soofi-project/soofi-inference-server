@@ -52,6 +52,44 @@
         - "{{ webui_port   | default('3000') }}"   # Open WebUI
         - "8001"  # vLLM debug port (host-mapped, single model — extend if more models added)
 
+    - name: Allow enabled image generation service port through UFW
+      community.general.ufw:
+        rule: allow
+        port: "{{ image_generation_service.internal_port }}"
+        proto: tcp
+      when:
+        - image_generation_service is defined
+        - image_generation_service.enabled | default(false)
+
+    - name: Remove disabled image generation service port from UFW
+      community.general.ufw:
+        rule: allow
+        port: "{{ image_generation_service.internal_port }}"
+        proto: tcp
+        delete: true
+      when:
+        - image_generation_service is defined
+        - not (image_generation_service.enabled | default(false))
+
+    - name: Allow enabled ComfyUI port through UFW
+      community.general.ufw:
+        rule: allow
+        port: "{{ comfyui_service.internal_port }}"
+        proto: tcp
+      when:
+        - comfyui_service is defined
+        - comfyui_service.enabled | default(false)
+
+    - name: Remove disabled ComfyUI port from UFW
+      community.general.ufw:
+        rule: allow
+        port: "{{ comfyui_service.internal_port }}"
+        proto: tcp
+        delete: true
+      when:
+        - comfyui_service is defined
+        - not (comfyui_service.enabled | default(false))
+
     # ── 7. Enable UFW with default-deny policy ───────────────────────────────
     - name: Enable UFW with default deny policy
       community.general.ufw:

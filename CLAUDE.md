@@ -4,11 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-Infrastructure-as-code for a self-hosted AI inference server: a 2x NVIDIA H200 NVL machine (`gpu-server-01`, 10.2.10.33, user `mrk`) serving LLMs via vLLM, fronted by LiteLLM (OpenAI-compatible API, port 4000, no auth) and Open WebUI (port 3000). Provisioned with Ansible, operated with Docker Compose. There is no application code, build step, or test suite — `./scripts/deploy.sh --check` (Ansible dry-run) is the closest thing to a test.
+Infrastructure-as-code for a self-hosted AI inference server: a 2x NVIDIA H200 NVL machine (`gpu-server-01`, 10.2.10.33, user `mrk`) serving LLMs via vLLM, fronted by LiteLLM (OpenAI-compatible API, port 4000, no auth) and Open WebUI (port 3000). Provisioned with Ansible, operated with Docker Compose. There is no application code or build step. `pytest -q` runs local IaC/rendering tests; `./scripts/deploy.sh --check` is the Ansible dry-run.
 
 ## Commands
 
 ```bash
+python -m pip install -r requirements-test.txt
+pytest -q
+RUN_LIVE_KREA2_E2E=1 pytest -q tests/test_krea2_live.py
+
 ./scripts/deploy.sh                    # Full deployment (default backend: stack)
 ./scripts/deploy.sh --check            # Dry-run
 ./scripts/deploy.sh --limit gpu-server-01
@@ -56,7 +60,7 @@ A model can serve weights already on the host instead of downloading from HF. Se
 
 ### Service blocks (top-level, not in `models:`)
 
-Non-vLLM services are defined as top-level keys in `vars.yaml`, siblings of `models:`: `stt_service` (speaches / faster-whisper), `falcon_perception_service`, `docling_service`. They use either `image:` (pulled) or `build_context:` (built on the host from a repo dir, e.g. `docling-service/`). Some register in LiteLLM (STT → `whisper-1`); others expose only a non-OpenAI HTTP API on a host port and are **not** in LiteLLM (Falcon-Perception 8004, Docling 8020). Toggle with `enabled:` / comment-out. First start of compile-heavy services (Falcon) can take ~15 min — hence their healthcheck `start_period` overrides and a persistent `/cache` volume.
+Non-vLLM services are defined as top-level keys in `vars.yaml`, siblings of `models:`: `comfyui_service`, `image_generation_service` (optional Krea Raw), `stt_service` (speaches / faster-whisper), `falcon_perception_service`, and `docling_service`. They use either `image:` (pulled or selected from `custom_images`) or `build_context:` (built on the host from a repo dir, e.g. `docling-service/`). Some register in LiteLLM (STT → `whisper-1`); others expose only a non-OpenAI HTTP API on a host port and are **not** in LiteLLM (ComfyUI 8188, Krea Raw 8005, Falcon-Perception 8004, Docling 8020). Toggle with `enabled:` / comment-out. ComfyUI models live under `/opt/soofi/models/comfyui`, while its inputs, outputs, profiles, workflows, and SQLite state persist indefinitely under `/home/mrk/image-gen-data`; disabling it removes only the container and UFW rule. First start of compile-heavy services (Falcon) can take ~15 min — hence their healthcheck `start_period` overrides and a persistent `/cache` volume.
 
 ### Secrets
 

@@ -28,9 +28,13 @@ H200 #0   H200 #1  H200 #0  H200 #1
 (141 GB)  (141 GB)
 ```
 
-LiteLLM is the single external endpoint (port 4000). Each model gets its own
-`vllm/vllm-openai` container reachable only within the Docker network.
-Open WebUI is included for browser-based chat.
+LiteLLM is the external endpoint for text, embedding, reranking, and speech
+models (port 4000). Each standard model gets its own `vllm/vllm-openai`
+container reachable within the Docker network. Image generation is independent
+from LiteLLM: ComfyUI serves the default local Krea 2 Turbo style-reference
+workflow on port 8188, while the older Krea 2 Raw vLLM-Omni service remains an
+optional, disabled service on port 8005. Open WebUI is included for
+browser-based chat.
 
 ## Quickstart (local Docker Compose)
 
@@ -92,11 +96,26 @@ soofi-inference-server/
 │   ├── 01-os-setup.md
 │   ├── 02-nvidia-setup.md
 │   └── 03-docker-deployment.md
+├── tests/                              # IaC rendering and opt-in live E2E tests
+├── pytest.ini                          # Pytest marker configuration
+├── requirements-test.txt               # Local test dependencies
 └── scripts/
     ├── deploy.sh                      # Ansible deployment entrypoint
     ├── edit-vault.sh                  # Edit Ansible Vault secrets
     └── remove-model.sh                # Interactive model removal (config + HF cache)
 ```
+
+## Tests
+
+Install the small local test toolchain and run the IaC/rendering suite:
+
+```bash
+python -m pip install -r requirements-test.txt
+pytest -q
+```
+
+Live tests are opt-in because they call deployed services and consume GPU time.
+The Krea-specific command is documented with its endpoint below.
 
 ---
 
@@ -157,6 +176,9 @@ models:
 
 Use `enabled: false` to keep a model in the catalog without deploying it.
 Use `vllm:` with snake_case keys. Older `vllmConfig` entries are legacy and are ignored by the current `stack` templates.
+Top-level service blocks such as `comfyui_service` and
+`image_generation_service` are rendered outside the standard model/LiteLLM
+loop and can pin their own container image.
 `vars.yaml` is the primary committed source for stack serving parameters, but `./scripts/deploy.sh -e key=value` can still override inventory values at deploy time.
 
 **`vault.yaml`** — AES256-encrypted, never commit in plaintext:
@@ -219,13 +241,14 @@ The `hf_token` in the vault is a real HuggingFace API token:
 - Create at huggingface.co → Settings → Access Tokens → **Fine-grained**, Read-only
 - Use a token from an **org account** for server deployments, not a personal token
 - Public models (Qwen, Mistral) work without a token — but rate-limiting applies
+- Krea 2 use is governed by the [Krea 2 Community License](https://www.krea.ai/krea-2-licensing)
 - If the token does not start with `hf_`, Ansible falls back to anonymous download silently
 
 ### Playbooks
 
 | Playbook | What it does |
 |----------|-------------|
-| `os_setup.yaml` | Base packages, NTP, UFW (ports 22/4000/3000), system limits, swap off |
+| `os_setup.yaml` | Base packages, NTP, UFW (including configured service ports), system limits, swap off |
 | `nvidia_setup.yaml` | Driver 590-server (from CUDA repo), Container Toolkit, nvidia-smi verify |
 | `docker_setup.yaml` | Docker Engine, NVIDIA runtime as default, mrk added to docker group |
 | `stack_deploy.yaml` | Generate stack configs from templates, pre-download model weights, start stack, health check |
@@ -309,6 +332,98 @@ curl http://gpu-server:4000/v1/chat/completions \
   -d '{"model": "qwen35-35b-fp8", "messages": [{"role": "user", "content": "Hello"}]}'
 
 ```
+
+### Krea 2 Turbo style reference with ComfyUI
+
+ComfyUI runs as `comfyui-krea2` on physical GPU 1 and is served directly at:
+
+- Browser and native API: `http://gpu-server-01:8188` or `http://10.2.10.33:8188`
+- Health: `http://10.2.10.33:8188/system_stats`
+
+**Security warning:** ComfyUI has no authentication or HTTPS and port 8188 is
+allowed from every host that can route to `gpu-server-01`. Never forward this
+port to the public internet. The deployment uses `--disable-api-nodes`, so the
+workflow uses local core nodes and does not send inputs to Comfy cloud/partner
+nodes.
+
+Open the Template Library and select **Krea-2 Int8: Image Style Reference**.
+The official template supports 1K–2K output choices; the mandatory automated
+acceptance run uses 1024×1024, one reference image, eight Turbo steps, and
+prompt enhancement disabled. `--multi-user` gives each trusted researcher a
+separate profile, but the GPU queue and input/output storage are shared.
+Uploaded and generated data is retained indefinitely and must be
+reviewed/managed by the research team.
+Use is subject to the
+[Krea 2 Community License](https://www.krea.ai/krea-2-licensing); researchers
+are responsible for human review and acceptable use of prompts, references,
+and outputs.
+
+Persistent storage on `gpu-server-01`:
+
+| Content | Host path | Container access |
+|---|---|---|
+| Verified model weights | `/opt/soofi/models/comfyui` | read-only |
+| Uploaded references | `/home/mrk/image-gen-data/input` | read/write |
+| Generated images | `/home/mrk/image-gen-data/output` | read/write |
+| Profiles, workflows, SQLite state | `/home/mrk/image-gen-data/user` | read/write |
+
+The four pinned model files total about 19.4 GB. The first enabled deployment
+downloads them directly from `Comfy-Org/Krea-2`; interrupted downloads resume
+from `.partial` files. Existing and downloaded files must match the exact size
+and SHA-256 manifest before the container starts. A mismatch stops deployment
+with the failing path and expected/actual values.
+
+The custom image pins PyTorch 2.13, torchvision 0.28, and TorchAudio 2.11 from
+the CUDA 13.0 wheel index. TorchAudio 2.11 deliberately differs because its
+stable ABI supports PyTorch 2.11 and newer and the index has no 2.13 wheel.
+The service sets `TRITON_CACHE_DIR=/tmp/triton` so first-run text-encoder and
+prompt-enhancement kernel compilation has a writable cache while ComfyUI runs
+as the unprivileged host user. The image includes `gcc` and `libc6-dev` for
+Triton's runtime CUDA driver-stub Python-extension compilation; Torch's native
+JIT remains enabled.
+
+Deploy and run the mandatory native-API E2E:
+
+```bash
+./scripts/deploy.sh --check --limit gpu-server-01
+./scripts/deploy.sh --limit gpu-server-01
+RUN_LIVE_KREA2_E2E=1 pytest -q tests/test_krea2_live.py
+```
+
+The live test uploads a deterministic PNG via `/upload/image`, queues the
+pinned workflow through `/prompt`, polls `/history/{prompt_id}`, retrieves the
+result through `/view`, and verifies a complete 1024×1024 PNG. Override the
+endpoint with `COMFYUI_BASE_URL` or the overall deadline with
+`COMFYUI_E2E_TIMEOUT`.
+
+Operational checks and troubleshooting:
+
+```bash
+curl -f http://10.2.10.33:8188/system_stats
+ssh mrk@10.2.10.33 "docker logs --tail 200 comfyui-krea2"
+ssh mrk@10.2.10.33 "docker inspect comfyui-krea2 --format '{{json .State.Health}}'"
+```
+
+If a model verification error occurs, use the reported path/checksum to inspect
+the file; do not bypass verification. For startup or CUDA errors, inspect the
+container logs and confirm physical GPU 1 is available. For a UI-only issue,
+first verify `/system_stats`, then reload the browser and reselect the named
+profile.
+
+To roll back, set `comfyui_service.enabled: false` and deploy again. Compose
+removes the orphaned container and Ansible removes the UFW rule, but models,
+uploads, outputs, profiles, workflows, and SQLite state remain on disk. To use
+the older Raw API instead, also set `image_generation_service.enabled: true`;
+concurrent Raw and ComfyUI operation is not an accepted capacity profile.
+
+### Optional Krea 2 Raw service
+
+The retained `image_generation_service` runs `vllm-krea-2-raw` directly on
+port 8005 with `vllm/vllm-omni:v0.26.0`. It is disabled by default and remains
+outside LiteLLM. See the
+[tagged vLLM-Omni recipe](https://github.com/vllm-project/vllm-omni/blob/v0.26.0/recipes/krea/Krea-2.md)
+and its [checkpoint terms](https://huggingface.co/krea/Krea-2-Raw) before
+enabling it. Do not replace the global vLLM image with the Omni image.
 
 Soofi Trainer integration (in `soofi-trainer/.env`):
 ```bash

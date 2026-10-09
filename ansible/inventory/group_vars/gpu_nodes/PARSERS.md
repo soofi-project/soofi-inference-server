@@ -59,7 +59,7 @@ docker run --rm --entrypoint="" vllm/vllm-openai:<tag> \
 ```
 
 Note: models can pin their own image via `repository`/`tag` in `vars.yaml`
-(`qwen38-27b-coding` runs `qwen38-x86_64-cu130`), so the list above — taken from
+(`qwen38-27b-coding` runs `v0.30.0`), so the list above — taken from
 `vllm_defaults.tag` — is not necessarily what those containers accept. Check per image.
 
 ## Reasoning parsers
