@@ -98,7 +98,7 @@ models:
   - name: "qwen3-embedding-8b"
     enabled: true
     hf_name: "Qwen/Qwen3-Embedding-8B"
-    gpu_ids: ["0"]
+    gpu_ids: ["1"]
     vllm:
       tensor_parallel_size: 1
       gpu_memory_utilization: 0.2
@@ -131,7 +131,8 @@ models:
     parser_profile: "qwen3"
     hf_name: "Qwen/Qwen3.5-9B"
     vllm:
-      gpu_memory_utilization: 0.45
+      gpu_memory_utilization: 0.35
+      max_num_seqs: 64
       max_model_len: 262144
       kv_cache_dtype: "auto"
       chat_template_kwargs: '{"enable_thinking": false}'      
@@ -143,7 +144,8 @@ models:
     parser_profile: "qwen3"
     hf_name: "Qwen/Qwen3.5-4B"
     vllm:
-      gpu_memory_utilization: 0.45
+      gpu_memory_utilization: 0.35
+      max_num_seqs: 64
       max_model_len: 262144
       kv_cache_dtype: "auto"
       chat_template_kwargs: '{"enable_thinking": false}'
@@ -200,7 +202,7 @@ models:
     repository: "vllm/vllm-openai"
     tag: "v0.30.0"
     parser_profile: "qwen3_coder"
-    gpu_ids: ["1"]
+    gpu_ids: ["0"]
     vllm:
       gpu_memory_utilization: 0.5
       tensor_parallel_size: 1
