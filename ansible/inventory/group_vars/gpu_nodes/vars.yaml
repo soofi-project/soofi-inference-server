@@ -195,7 +195,7 @@ models:
       chat_template_kwargs: '{"enable_thinking": false}'
 
   - name: "qwen38-27b-multi"
-    enabled: false
+    enabled: true
     hf_name: "Qwen/Qwen3.8-27B-FP8"
     repository: "vllm/vllm-openai"
     tag: "v0.30.0"
