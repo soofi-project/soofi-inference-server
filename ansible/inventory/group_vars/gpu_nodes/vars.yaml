@@ -11,12 +11,10 @@ cuda_version: "12-4"                  # apt format (dash-separated)
 deploy_dir: /opt/soofi
 
 # vLLM defaults — override per model if needed.
-# Bumped v0.21.0 (15 May 2026) → v0.27.1 (11 Aug 2026). Newest stable tag; brings
+# Bumped v0.21.0 (15 May 2026) → v0.27.1 (11 Aug 2026). Shared default; brings
 # transformers 5.13.0 (vLLM #47867), PyTorch 2.13, and a lot of Qwen3.5/3.6 kernel
 # work (RMSNorm+all-reduce fusion, MoE reduce-scatter, H20 opt) that qwen36-27b-multi
-# benefits from. Deliberately NOT the `qwen38` branch build — that one is pinned on
-# the single model that needs it (see qwen38-27b-coding), so the rest of the stack
-# stays on a versioned tag.
+# benefits from. Qwen3.8 models override this default with a newer stable tag.
 vllm_defaults:
   repository: "vllm/vllm-openai"
   tag: "v0.27.1"
@@ -173,20 +171,15 @@ models:
       chat_template_kwargs: '{"enable_thinking": false}'
   
 
-  # Qwen3.8 is NOT in any tagged vLLM release, not even the current default:
-  # v0.27.1 (11 Aug 2026) predates it and only adds Qwen3.5 text-only dense/MoE.
-  # Support ships in the day-0 `qwen38` branch builds (pushed 12 Aug 2026), so this
-  # is the one model that has to run off a branch build rather than a version tag.
-  # It also satisfies the transformers >= 5.8.0 that this checkpoint's config.json
-  # requires. cu130 needs driver >= 580 (host runs 590).
-  # Note: `compose up` does not re-pull, so this tag is effectively pinned to the
-  # first pull; `docker pull vllm/vllm-openai:qwen38-x86_64-cu130` on the host to
-  # pick up a rebuild. Drop repository/tag once Qwen3.8 lands in a stable release.
+  # Qwen3.8 support is available in stable vLLM releases from v0.28.0 onward.
+  # Keep these models on v0.30.0 while the shared default remains v0.27.1.
+  # The stable CUDA 13.0 image includes transformers >= 5.8.0 as required by
+  # this checkpoint; the host's 590 driver supports CUDA 13.0.
   - name: "qwen38-27b-coding"
     enabled: true
     hf_name: "Qwen/Qwen3.8-27B-FP8"
     repository: "vllm/vllm-openai"
-    tag: "qwen38-x86_64-cu130"
+    tag: "v0.30.0"
     parser_profile: "qwen3_coder"
     gpu_ids: ["0"]
     vllm:
@@ -194,18 +187,18 @@ models:
       tensor_parallel_size: 1
       max_num_seqs: 8
       max_model_len: 120000
-      kv_cache_dtype: "fp8"
+      kv_cache_dtype: "auto"
       max_num_batched_tokens: 16384
       enable_prefix_caching: true
       limit_mm_per_prompt: '{"image": 4, "video": 0}'
-      speculative_config: '{"method":"mtp","num_speculative_tokens":3}'
+      #speculative_config: '{"method":"mtp","num_speculative_tokens":3}'
       chat_template_kwargs: '{"enable_thinking": false}'
 
   - name: "qwen38-27b-multi"
     enabled: false
     hf_name: "Qwen/Qwen3.8-27B-FP8"
     repository: "vllm/vllm-openai"
-    tag: "qwen38-x86_64-cu130"
+    tag: "v0.30.0"
     parser_profile: "qwen3_coder"
     gpu_ids: ["1"]
     vllm:
@@ -213,10 +206,10 @@ models:
       tensor_parallel_size: 1
       max_num_seqs: 4
       max_model_len: 65536
-      kv_cache_dtype: "fp8"
+      kv_cache_dtype: "auto"
       max_num_batched_tokens: 16384
       enable_prefix_caching: true
-      speculative_config: '{"method":"mtp","num_speculative_tokens":3}'
+      #speculative_config: '{"method":"mtp","num_speculative_tokens":3}'
       limit_mm_per_prompt: '{"image": 4, "video": 0}'
       #max_num_batched_tokens: 16384
       chat_template_kwargs: '{"enable_thinking": false}'
@@ -268,7 +261,7 @@ models:
   # the quantization. No trust_remote_code needed. Recipe:
   # https://recipes.vllm.ai/meta-models/Muse-Glimmer-30B?variant=fp8_block&hardware=h200&features=tool_calling%2Creasoning%2Cspec_decoding&advanced=max_batched_8k
   #
-  # Image is pinned to a branch build, same situation as qwen38-27b-coding:
+  # Image is pinned to a branch build:
   # muse_glimmer support (model + both parsers + DFlash spec decoding) lands via
   # vllm-project/vllm#51655 and the day-0 `vllm/vllm-openai:muse-glimmer` image,
   # NOT in the v0.27.1 default tag. `compose up` does not re-pull, so run
@@ -281,7 +274,7 @@ models:
   # max_tokens generously — a tight limit truncates before the final channel
   # closes and returns empty content with finish_reason "stop".
   - name: "muse-glimmer-30b-multi"
-    enabled: false
+    enabled: true
     hf_name: "RedHatAI/Muse-Glimmer-30B-FP8-block"
     repository: "vllm/vllm-openai"
     tag: "muse-glimmer"
@@ -504,7 +497,7 @@ image_generation_service:
 # This endpoint is unauthenticated. Never forward port 8188 to the public
 # internet; it is intended only for trusted hosts that can route to this server.
 comfyui_service:
-  enabled: true
+  enabled: false
   user: "mrk"
   container_name: "comfyui-krea2"
   image: "soofi/comfyui-krea2:v0.30.0-torch2.13.0-cu130"

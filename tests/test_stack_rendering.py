@@ -184,10 +184,27 @@ def test_krea_capacity_is_freed_without_changing_existing_runtimes():
         "vllm/vllm-openai:v0.27.1"
     )
     assert services["vllm-qwen38-27b-coding"]["image"] == (
-        "vllm/vllm-openai:qwen38-x86_64-cu130"
+        "vllm/vllm-openai:v0.30.0"
     )
     assert services["falcon-perception"]["image"] == (
         "soofi/falcon-perception:v1.0.0-lowmem1"
+    )
+
+
+def test_qwen38_models_pin_stable_vllm_release():
+    inventory = yaml.safe_load(VARS_PATH.read_text())
+    qwen38_models = {
+        model["name"]: model
+        for model in inventory["models"]
+        if model["name"] in {"qwen38-27b-coding", "qwen38-27b-multi"}
+    }
+
+    assert set(qwen38_models) == {"qwen38-27b-coding", "qwen38-27b-multi"}
+    assert {model["tag"] for model in qwen38_models.values()} == {"v0.30.0"}
+
+    compose = _render("docker-compose.stack.yml.j2")
+    assert compose["services"]["vllm-qwen38-27b-coding"]["image"] == (
+        "vllm/vllm-openai:v0.30.0"
     )
 
 
