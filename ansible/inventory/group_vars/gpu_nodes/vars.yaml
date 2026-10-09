@@ -123,8 +123,8 @@ models:
       language_model_only: true
 
   - name: "qwen35-9b"
-    enabled: false
-    gpu_ids: ["1"]
+    enabled: true
+    gpu_ids: ["0"]
     parser_profile: "qwen3"
     hf_name: "Qwen/Qwen3.5-9B"
     vllm:
@@ -178,7 +178,7 @@ models:
   # first pull; `docker pull vllm/vllm-openai:qwen38-x86_64-cu130` on the host to
   # pick up a rebuild. Drop repository/tag once Qwen3.8 lands in a stable release.
   - name: "qwen38-27b-coding"
-    enabled: true
+    enabled: false
     hf_name: "Qwen/Qwen3.8-27B-FP8"
     repository: "vllm/vllm-openai"
     tag: "qwen38-x86_64-cu130"
