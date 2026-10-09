@@ -175,7 +175,7 @@ models:
   # Keep these models on v0.30.0 while the shared default remains v0.27.1.
   # The stable CUDA 13.0 image includes transformers >= 5.8.0 as required by
   # this checkpoint; the host's 590 driver supports CUDA 13.0.
-  - name: "qwen38-27b-coding"
+  - name: "qwen38-27b-coding-0"
     enabled: false
     hf_name: "Qwen/Qwen3.8-27B-FP8"
     repository: "vllm/vllm-openai"
@@ -194,7 +194,7 @@ models:
       #speculative_config: '{"method":"mtp","num_speculative_tokens":3}'
       chat_template_kwargs: '{"enable_thinking": false}'
 
-  - name: "qwen38-27b-multi"
+  - name: "qwen38-27b-coding"
     enabled: true
     hf_name: "Qwen/Qwen3.8-27B-FP8"
     repository: "vllm/vllm-openai"
